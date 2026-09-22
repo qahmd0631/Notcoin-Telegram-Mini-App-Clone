@@ -34,6 +34,34 @@ declare global {
   }
 }
 
+const GlowingGoldenTriangleLogo = ({ size = 170, className = '' }: { size?: number; className?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 200 200"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-label="Golden triangle logo"
+    role="img"
+    style={{ filter: 'drop-shadow(0 0 18px rgba(255, 214, 90, 0.9)) drop-shadow(0 0 26px rgba(255, 180, 40, 0.7))' }}
+  >
+    <path d="M100 20 L170 150 C160 170 130 180 100 180 C70 180 40 170 30 150 Z" fill="url(#goldGradient1)" />
+    <path d="M100 20 L30 150 L100 110 L170 150 Z" fill="url(#goldGradient2)" opacity="0.92" />
+    <defs>
+      <linearGradient id="goldGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#FFE259" />
+        <stop offset="100%" stopColor="#FFA751" />
+      </linearGradient>
+      <linearGradient id="goldGradient2" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#FFD700" />
+        <stop offset="50%" stopColor="#B8860B" />
+        <stop offset="100%" stopColor="#D4AF37" />
+      </linearGradient>
+    </defs>
+  </svg>
+);
+
 const App = () => {
   const [points, setPoints] = useState(0);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'miners' | 'friends' | 'profile'>('home');
@@ -905,7 +933,7 @@ const App = () => {
                 <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-              <img src="/logo.png" alt="AURA GEN" className="h-32 w-32 object-contain" />
+              <GlowingGoldenTriangleLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
           </div>
 
