@@ -59,6 +59,21 @@ const App = () => {
     const realUserId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
     return { webApp, tgUser, realUserId };
   };
+  const getReferrerId = () => {
+    const initDataParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+    if (initDataParam && initDataParam.startsWith('ref_')) {
+      return initDataParam.replace('ref_', '');
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const tgStartParam = urlParams.get('tgWebAppStartParam') || urlParams.get('startapp');
+    if (tgStartParam && tgStartParam.startsWith('ref_')) {
+      return tgStartParam.replace('ref_', '');
+    }
+
+    return null;
+  };
+
   const syncReferralStats = async (userId: string | null) => {
     if (!userId) {
       setReferralStats({ totalReferrals: 0, unclaimedRewards: 0, pending: [] });
@@ -383,9 +398,7 @@ const App = () => {
 
     const { tgUser, realUserId } = getTelegramContext();
     const realUsername = tgUser?.username || tgUser?.first_name || 'Telegram User';
-    const initData = window.Telegram?.WebApp?.initDataUnsafe;
-    const startParam = initData?.start_param || '';
-    const referrerId = startParam.startsWith('ref_') ? startParam.replace(/^ref_/, '') : null;
+    const referrerId = getReferrerId();
 
     setTelegramUser(tgUser ?? null);
     setTelegramId(realUserId);
