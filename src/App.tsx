@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './index.css';
 import { agenMark } from './images';
 import { supabase } from './supabase';
@@ -31,21 +31,15 @@ const App = () => {
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [telegramId, setTelegramId] = useState<string | null>(null);
-  const [isMining, setIsMining] = useState(false);
-  const [isClaimReady, setIsClaimReady] = useState(false);
-  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [isMining, setIsMining] = useState(true);
   const [minedThisSession, setMinedThisSession] = useState(0);
   const [bonusMinutes, setBonusMinutes] = useState(0);
+  const miningLastUpdatedRef = useRef<number | null>(null);
 
-  const miningRate = 0.0008;
-  const miningDuration = 300;
-  const totalMiningDuration = Number.isFinite(miningDuration + bonusMinutes * 60)
-    ? miningDuration + bonusMinutes * 60
-    : miningDuration;
+  const miningRate = 0.0001;
   const holdingBalance = Number.isFinite(points * 0.75) ? Number((points * 0.75).toFixed(4)) : 0;
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
-  const safeSessionSeconds = Number.isFinite(sessionSeconds) ? sessionSeconds : 0;
-  const safeMinedThisSession = Number.isFinite(minedThisSession) ? minedThisSession : 0;
+  const safeMinedThisSession = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
 
   const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
     if (typeof window === 'undefined') {
@@ -103,18 +97,11 @@ const App = () => {
   };
 
   const handleMiningAction = async () => {
-    if (!isMining && !isClaimReady) {
-      setSessionSeconds(0);
-      setMinedThisSession(0);
-      setIsMining(true);
-      setIsClaimReady(false);
-      return;
-    }
+    const pendingReward = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
 
-    if (isClaimReady) {
+    if (pendingReward > 0) {
       const currentPoints = Number.parseFloat(String(points || 0));
-      const minedAmount = Number.parseFloat(String(minedThisSession || 0));
-      const newTotalPoints = Number((currentPoints + minedAmount).toFixed(4));
+      const newTotalPoints = Number((currentPoints + pendingReward).toFixed(4));
       const webApp = window.Telegram?.WebApp;
       const tgUser = webApp?.initDataUnsafe?.user ?? null;
       const activeTelegramId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
@@ -131,7 +118,7 @@ const App = () => {
         .update({ points: newTotalPoints })
         .eq('telegram_id', activeTelegramId);
 
-      console.log('[Supabase] CLAIM save', { activeTelegramId, currentPoints, minedAmount, newTotalPoints, data, error });
+      console.log('[Supabase] CLAIM save', { activeTelegramId, currentPoints, pendingReward, newTotalPoints, data, error });
 
       if (error) {
         console.error('[Supabase] CLAIM update failed:', error);
@@ -141,9 +128,15 @@ const App = () => {
 
       setPoints(newTotalPoints);
       setMinedThisSession(0);
-      setSessionSeconds(0);
-      setIsClaimReady(false);
-      setIsMining(false);
+      setIsMining(true);
+      miningLastUpdatedRef.current = Date.now();
+      return;
+    }
+
+    if (!isMining) {
+      setMinedThisSession(0);
+      setIsMining(true);
+      miningLastUpdatedRef.current = Date.now();
     }
   };
 
@@ -151,10 +144,9 @@ const App = () => {
     const normalizedBonus = Number.isFinite(bonusMinutes) ? bonusMinutes : 0;
 
     if (!isMining) {
-      setSessionSeconds(0);
       setMinedThisSession(0);
       setIsMining(true);
-      setIsClaimReady(false);
+      miningLastUpdatedRef.current = Date.now();
     }
 
     const adReward = 0.05;
@@ -262,27 +254,25 @@ const App = () => {
       return;
     }
 
+    if (!miningLastUpdatedRef.current) {
+      miningLastUpdatedRef.current = Date.now();
+    }
+
     const miningInterval = window.setInterval(() => {
-      const normalizedBonusMinutes = Number.isFinite(bonusMinutes) ? bonusMinutes : 0;
-      const maximumDuration = miningDuration + normalizedBonusMinutes * 60;
+      const now = Date.now();
+      const lastUpdated = miningLastUpdatedRef.current ?? now;
+      const elapsedSeconds = Math.max((now - lastUpdated) / 1000, 0);
 
-      setMinedThisSession((prevValue) => Number.isFinite(prevValue) ? Number((prevValue + miningRate).toFixed(4)) : miningRate);
-      setSessionSeconds((prevSeconds) => {
-        const previousSeconds = Number.isFinite(prevSeconds) ? prevSeconds : 0;
-        const nextSeconds = previousSeconds + 1;
+      if (elapsedSeconds > 0) {
+        const earnedFromElapsedTime = Number((elapsedSeconds * miningRate).toFixed(4));
+        setMinedThisSession((prevValue) => Number((prevValue + earnedFromElapsedTime).toFixed(4)));
+      }
 
-        if (nextSeconds >= maximumDuration) {
-          setIsMining(false);
-          setIsClaimReady(true);
-          return maximumDuration;
-        }
-
-        return nextSeconds;
-      });
+      miningLastUpdatedRef.current = now;
     }, 1000);
 
     return () => window.clearInterval(miningInterval);
-  }, [isMining, bonusMinutes]);
+  }, [isMining]);
 
   const navItems: Array<{ key: 'home' | 'tasks' | 'friends' | 'profile'; label: string; icon: JSX.Element }> = [
     {
@@ -360,11 +350,11 @@ const App = () => {
           <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
             <div className="text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">Live Counter</div>
             <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
-              {isMining ? `+${safeMinedThisSession.toFixed(4)} AGEN` : isClaimReady ? `+${safeMinedThisSession.toFixed(4)} AGEN` : '+0.0000 AGEN'}
+              {`+${safeMinedThisSession.toFixed(4)} AGEN`}
             </div>
             <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
-              {isMining ? `Mining ${safeSessionSeconds}s / ${totalMiningDuration}s` : isClaimReady ? 'Ready to claim' : 'Idle'}
+              {isMining ? 'PASSIVE MINING (LIVE)' : 'READY TO MINE'}
             </div>
           </div>
 
@@ -380,7 +370,7 @@ const App = () => {
               className="w-full rounded-[20px] bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-5 py-4 text-lg font-black uppercase tracking-[0.18em] text-[#16130b] shadow-[0_18px_35px_rgba(212,175,55,0.35)] transition-transform active:scale-[0.99]"
               onClick={handleMiningAction}
             >
-              {isMining ? 'MINING…' : isClaimReady ? 'CLAIM' : 'START'}
+              {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
             </button>
             <button
               className="w-full rounded-[18px] border border-[#e5c158]/25 bg-[#171a1d] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#f8d57a] shadow-[0_0_18px_rgba(229,193,88,0.06)]"
