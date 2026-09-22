@@ -9,7 +9,7 @@ const App = () => {
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
-  const [telegramUser, setTelegramUser] = useState<{ id?: number; username?: string } | null>(null);
+  const [telegramUser, setTelegramUser] = useState<{ id?: number; username?: string; first_name?: string } | null>(null);
   const [isMining, setIsMining] = useState(false);
   const [isClaimReady, setIsClaimReady] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -31,24 +31,46 @@ const App = () => {
       return;
     }
 
-    const tgId = Number((window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? 999999);
-    const username = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.username || telegramUser?.username || 'User';
+    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+    const realTelegramId = tgUser?.id;
+    const username = tgUser?.username || tgUser?.first_name || 'Anonymous User';
     const normalizedPoints = Number(Number(nextPoints).toFixed(4));
 
-    if (!Number.isFinite(tgId)) {
-      console.warn('[Supabase]', source, 'missing Telegram ID; skipping save');
+    if (!realTelegramId) {
+      console.warn('[Supabase]', source, 'missing real Telegram ID; skipping save');
       return;
     }
+
+    const { data: currentUser, error: fetchError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('telegram_id', realTelegramId)
+      .maybeSingle();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('[Supabase] fetch failed for', source, fetchError);
+      return;
+    }
+
+    const safeCurrentPoints = Number(currentUser?.points ?? 0);
+    const newTotalPoints = Number.isFinite(normalizedPoints) ? normalizedPoints : safeCurrentPoints;
 
     const { data, error } = await supabase
       .from('users')
       .update({
         username,
-        points: normalizedPoints,
+        points: newTotalPoints,
       })
-      .eq('telegram_id', tgId);
+      .eq('telegram_id', realTelegramId);
 
-    console.log('[Supabase]', source, { tgId, username, normalizedPoints, data, error });
+    console.log('[Supabase]', source, {
+      realTelegramId,
+      username,
+      safeCurrentPoints,
+      newTotalPoints,
+      data,
+      error,
+    });
 
     if (error) {
       console.error('[Supabase] update failed for', source, error);
@@ -77,7 +99,7 @@ const App = () => {
     }
   };
 
-  const handleWatchAd = () => {
+  const handleWatchAd = async () => {
     const normalizedBonus = Number.isFinite(bonusMinutes) ? bonusMinutes : 0;
 
     if (!isMining) {
@@ -87,7 +109,11 @@ const App = () => {
       setIsClaimReady(false);
     }
 
+    const adReward = 0.05;
+    const nextPoints = Number((points + adReward).toFixed(4));
+    setPoints(nextPoints);
     setBonusMinutes(normalizedBonus + 5);
+    await persistUserBalance(nextPoints, 'ad_bonus');
   };
 
   const handleInviteFriend = () => {
@@ -110,22 +136,27 @@ const App = () => {
       return;
     }
 
-    const telegramUserData = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const tgId = Number((window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? 999999);
-    const username = telegramUserData?.username || 'User';
-    setTelegramUser(telegramUserData ?? null);
+    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+    const realTelegramId = tgUser?.id;
+    const username = tgUser?.username || tgUser?.first_name || 'Anonymous User';
+    setTelegramUser(tgUser ?? null);
 
-    const nextLink = tgId === 999999
+    const nextLink = !realTelegramId
       ? 'https://t.me/Copmujbot/Gop'
-      : `https://t.me/Copmujbot/Gop?startapp=ref_${tgId}`;
+      : `https://t.me/Copmujbot/Gop?startapp=ref_${realTelegramId}`;
 
     setReferralLink(nextLink);
+
+    if (!realTelegramId) {
+      setIsBalanceLoaded(true);
+      return;
+    }
 
     const loadUserPoints = async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('points')
-        .eq('telegram_id', tgId)
+        .select('points, telegram_id, username')
+        .eq('telegram_id', realTelegramId)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
@@ -139,7 +170,7 @@ const App = () => {
           .from('users')
           .insert([
             {
-              telegram_id: tgId,
+              telegram_id: realTelegramId,
               username,
               points: 0,
             },
@@ -151,14 +182,14 @@ const App = () => {
           return;
         }
 
-        console.log('[Supabase] New user created with zero balance', { tgId, username });
+        console.log('[Supabase] New user created with zero balance', { realTelegramId, username });
         setPoints(0);
         setIsBalanceLoaded(true);
         return;
       }
 
       const savedPoints = Number(data.points ?? 0);
-      console.log('[Supabase] Loaded saved user balance', { tgId, savedPoints });
+      console.log('[Supabase] Loaded saved user balance', { realTelegramId, username, savedPoints });
       setPoints(savedPoints);
       setIsBalanceLoaded(true);
     };
@@ -175,7 +206,7 @@ const App = () => {
       const { error } = await supabase
         .from('users')
         .update({
-          username: telegramUser.username || 'User',
+          username: telegramUser.username || telegramUser.first_name || 'Anonymous User',
           points,
         })
         .eq('telegram_id', telegramUser.id);
@@ -394,7 +425,7 @@ const App = () => {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">User ID</p>
-            <h2 className="mt-2 text-xl font-bold text-[#fff6d3]">{telegramUser?.username || 'username'}</h2>
+            <h2 className="mt-2 text-xl font-bold text-[#fff6d3]">{telegramUser?.username || telegramUser?.first_name || 'Anonymous User'}</h2>
           </div>
           <div className="rounded-full bg-[#f4c75b]/15 px-3 py-2 text-xs font-bold text-[#f7d780]">Online</div>
         </div>
