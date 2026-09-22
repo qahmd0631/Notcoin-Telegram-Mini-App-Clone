@@ -24,6 +24,7 @@ declare global {
       WebApp?: {
         ready?: () => void;
         expand?: () => void;
+        sendData?: (data: string) => void;
         initDataUnsafe?: {
           user?: TelegramUser;
           start_param?: string;
@@ -55,13 +56,6 @@ const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; cl
         <stop offset="0.8" stopColor="#b56d0b" />
         <stop offset="1" stopColor="#fff0ad" />
       </linearGradient>
-      <linearGradient id="agenTextGold" x1="58" y1="66" x2="160" y2="160" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#fff9dd" />
-        <stop offset="0.2" stopColor="#ffe69a" />
-        <stop offset="0.5" stopColor="#f4c34d" />
-        <stop offset="0.76" stopColor="#c87e13" />
-        <stop offset="1" stopColor="#fff2b0" />
-      </linearGradient>
       <filter id="agenShadow" x="-40%" y="-40%" width="180%" height="180%">
         <feDropShadow dx="0" dy="3" stdDeviation="3.5" floodColor="#8f5d0d" floodOpacity="0.35" />
         <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#f9d96b" floodOpacity="0.9" />
@@ -73,28 +67,11 @@ const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; cl
       <circle cx="110" cy="110" r="82" fill="#fff3bf" fillOpacity="0.12" stroke="#f9efbf" strokeOpacity="0.75" strokeWidth="2.2" />
       <circle cx="110" cy="110" r="72" stroke="#8b5d11" strokeOpacity="0.8" strokeWidth="4" fill="none" />
       <circle cx="110" cy="110" r="60" stroke="#f8d77b" strokeOpacity="0.52" strokeWidth="2" fill="none" />
-
       <path d="M56 76C70 51 88 38 110 38C132 38 150 51 164 76" stroke="url(#agenCoinGold)" strokeWidth="9" strokeLinecap="round" fill="none" />
       <path d="M56 144C70 169 88 182 110 182C132 182 150 169 164 144" stroke="url(#agenCoinGold)" strokeWidth="9" strokeLinecap="round" fill="none" />
-
-      <text
-        x="110"
-        y="125"
-        textAnchor="middle"
-        fontSize="36"
-        fontWeight="900"
-        letterSpacing="2.2"
-        fontFamily="Segoe UI, Arial, sans-serif"
-        fill="url(#agenTextGold)"
-        style={{ paintOrder: 'stroke', stroke: '#9a5d07', strokeWidth: 2.3 }}
-      >
-        AGEN
-      </text>
-
-      <path d="M73 82L94 110L73 138" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M147 82L126 110L147 138" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M102 78L110 90L118 78" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M102 142L110 130L118 142" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M110 56L150 154H70L110 56Z" fill="#1f1c1a" opacity="0.95" />
+      <path d="M110 76L136 144H84L110 76Z" fill="#2a2a29" opacity="0.8" />
+      <path d="M102 98H118L128 128H92L102 98Z" fill="#f7d77d" opacity="0.18" />
     </g>
   </svg>
 );
@@ -130,6 +107,22 @@ const App = () => {
   const lastLinkedWalletRef = useRef<string | null>(null);
 
   const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
+
+  const handleFloatingAction = () => {
+    const webApp = window.Telegram?.WebApp;
+    if (webApp) {
+      webApp.expand?.();
+      const payload = JSON.stringify({
+        type: 'floating_action',
+        action: 'quick_trigger',
+        userId: telegramId ?? getTelegramContext().realUserId ?? null,
+      });
+      webApp.sendData?.(payload);
+    }
+
+    setToastMessage('Quick action sent');
+    window.setTimeout(() => setToastMessage(null), 1800);
+  };
 
   const isAdLimitLocked = (count: number, lastDate: string | null) => {
     if (count < 10 || !lastDate) {
@@ -1702,6 +1695,19 @@ const App = () => {
         {activeTab === 'friends' && renderFriendsView()}
         {activeTab === 'profile' && renderProfileView()}
       </div>
+
+      <button
+        type="button"
+        aria-label="Quick action"
+        className="gold-fab"
+        onClick={handleFloatingAction}
+      >
+        <span className="gold-fab__triangle" aria-hidden="true">
+          <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+            <polygon points="60,22 98,92 22,92" fill="#222" />
+          </svg>
+        </span>
+      </button>
 
       <div className="fixed bottom-0 left-0 right-0 z-[1000] border-t border-[#e5c158]/15 bg-[#101317]/95 px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md">
         <div className="grid grid-cols-5 gap-1 text-center text-[10px] font-medium">
