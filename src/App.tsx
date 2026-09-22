@@ -59,13 +59,6 @@ const App = () => {
     const realUserId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
     return { webApp, tgUser, realUserId };
   };
-  const getReferrerIdFromStartParam = () => {
-    const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
-    if (typeof startParam !== 'string' || !startParam.startsWith('ref_')) {
-      return null;
-    }
-    return startParam.replace(/^ref_/, '');
-  };
   const syncReferralStats = async (userId: string | null) => {
     if (!userId) {
       setReferralStats({ totalReferrals: 0, unclaimedRewards: 0, pending: [] });
@@ -93,6 +86,70 @@ const App = () => {
       totalReferrals: rows.length,
       unclaimedRewards: Number(unclaimedRewards.toFixed(4)),
       pending,
+    });
+  };
+
+  const awardReferralBonus = async (referrerId: string, referredId: string) => {
+    const { data: existingReferral, error: referralCheckError } = await supabase
+      .from('referrals')
+      .select('id')
+      .eq('referred_id', referredId)
+      .maybeSingle();
+
+    if (referralCheckError && referralCheckError.code !== 'PGRST116') {
+      console.error('[Referral] Lookup failed:', referralCheckError);
+      return;
+    }
+
+    if (existingReferral) {
+      return;
+    }
+
+    const { error: referralInsertError } = await supabase
+      .from('referrals')
+      .insert([
+        {
+          referrer_id: referrerId,
+          referred_id: referredId,
+          reward_amount: 10,
+          claimed: false,
+        },
+      ]);
+
+    if (referralInsertError) {
+      console.error('[Referral] Insert failed:', referralInsertError);
+      return;
+    }
+
+    const { data: referrerUser, error: referrerLoadError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('telegram_id', referrerId)
+      .maybeSingle();
+
+    if (referrerLoadError && referrerLoadError.code !== 'PGRST116') {
+      console.error('[Referral] Referrer fetch failed:', referrerLoadError);
+      return;
+    }
+
+    const referrerBalance = normalizePoints(referrerUser?.points ?? 0);
+    const nextReferrerBalance = Number((referrerBalance + 10).toFixed(4));
+
+    const { error: referrerUpdateError } = await supabase
+      .from('users')
+      .update({ points: nextReferrerBalance })
+      .eq('telegram_id', referrerId);
+
+    if (referrerUpdateError) {
+      console.error('[Referral] Referrer reward update failed:', referrerUpdateError);
+      return;
+    }
+
+    console.log('[Referral] Referrer reward added', {
+      referrerId,
+      referredId,
+      rewardAmount: 10,
+      nextReferrerBalance,
     });
   };
   const holdingBalance = Number.isFinite(points * 0.75) ? Number((points * 0.75).toFixed(4)) : 0;
@@ -326,7 +383,9 @@ const App = () => {
 
     const { tgUser, realUserId } = getTelegramContext();
     const realUsername = tgUser?.username || tgUser?.first_name || 'Telegram User';
-    const referrerId = getReferrerIdFromStartParam();
+    const initData = window.Telegram?.WebApp?.initDataUnsafe;
+    const startParam = initData?.start_param || '';
+    const referrerId = startParam.startsWith('ref_') ? startParam.replace(/^ref_/, '') : null;
 
     setTelegramUser(tgUser ?? null);
     setTelegramId(realUserId);
@@ -356,7 +415,7 @@ const App = () => {
       }
 
       if (!data) {
-        const { data: insertedUser, error: insertError } = await supabase
+        const { error: insertError } = await supabase
           .from('users')
           .insert([
             {
@@ -365,9 +424,7 @@ const App = () => {
               points: 0,
               referred_by: referrerId ?? null,
             },
-          ])
-          .select('*')
-          .single();
+          ]);
 
         if (insertError) {
           console.error('Error inserting new user:', insertError);
@@ -378,8 +435,12 @@ const App = () => {
           realUserId,
           realUsername,
           referrerId,
-          insertedUser,
         });
+
+        if (referrerId && referrerId !== realUserId) {
+          await awardReferralBonus(referrerId, realUserId);
+        }
+
         setPoints(0);
       } else {
         const savedPoints = Number(data.points ?? 0);
@@ -391,67 +452,6 @@ const App = () => {
             .from('users')
             .update({ referred_by: referrerId })
             .eq('telegram_id', realUserId);
-        }
-      }
-
-      if (referrerId && referrerId !== realUserId) {
-        const { data: existingReferral, error: referralCheckError } = await supabase
-          .from('referrals')
-          .select('id')
-          .eq('referred_id', realUserId)
-          .maybeSingle();
-
-        if (referralCheckError && referralCheckError.code !== 'PGRST116') {
-          console.error('[Referral] Lookup failed:', referralCheckError);
-          return;
-        }
-
-        if (!existingReferral) {
-          const { error: referralInsertError } = await supabase
-            .from('referrals')
-            .insert([
-              {
-                referrer_id: referrerId,
-                referred_id: realUserId,
-                reward_amount: 10,
-                claimed: false,
-              },
-            ]);
-
-          if (referralInsertError) {
-            console.error('[Referral] Insert failed:', referralInsertError);
-            return;
-          }
-
-          const { data: referrerUser, error: referrerLoadError } = await supabase
-            .from('users')
-            .select('points')
-            .eq('telegram_id', referrerId)
-            .maybeSingle();
-
-          if (referrerLoadError && referrerLoadError.code !== 'PGRST116') {
-            console.error('[Referral] Referrer fetch failed:', referrerLoadError);
-            return;
-          }
-
-          const referrerBalance = normalizePoints(referrerUser?.points ?? 0);
-          const nextReferrerBalance = Number((referrerBalance + 10).toFixed(4));
-
-          const { error: referrerUpdateError } = await supabase
-            .from('users')
-            .update({ points: nextReferrerBalance })
-            .eq('telegram_id', referrerId);
-
-          if (referrerUpdateError) {
-            console.error('[Referral] Referrer reward update failed:', referrerUpdateError);
-          } else {
-            console.log('[Referral] Referrer reward added', {
-              referrerId,
-              referredId: realUserId,
-              rewardAmount: 10,
-              nextReferrerBalance,
-            });
-          }
         }
       }
 
@@ -664,7 +664,7 @@ const App = () => {
           </div>
           <div className="rounded-2xl bg-[#1d2128] p-3 text-center">
             <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Unclaimed Rewards</p>
-            <div className="mt-2 text-2xl font-black text-[#f9e6ad]">{referralStats.unclaimedRewards.toLocaleString()} AGEN</div>
+            <div className="mt-2 text-2xl font-black text-[#f9e6ad]">{(referralStats.totalReferrals * 10).toLocaleString()} AGEN</div>
           </div>
         </div>
 
