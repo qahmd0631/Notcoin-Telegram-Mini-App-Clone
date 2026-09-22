@@ -11,7 +11,7 @@ const App = () => {
   const [showFrens, setShowFrens] = useState(false);
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
-  const [telegramUserId, setTelegramUserId] = useState<number | null>(null);
+  const [telegramUser, setTelegramUser] = useState<{ id?: number; username?: string } | null>(null);
   const pointsToAdd = 12;
   const energyToReduce = 12;
 
@@ -56,9 +56,9 @@ const App = () => {
       return;
     }
 
-    const userId = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    const telegramId = typeof userId === 'number' ? userId : null;
-    setTelegramUserId(telegramId);
+    const telegramUserData = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+    const telegramId = typeof telegramUserData?.id === 'number' ? telegramUserData.id : null;
+    setTelegramUser(telegramUserData ?? null);
 
     const nextLink = telegramId == null
       ? 'https://t.me/Copmujbot/Gop'
@@ -85,7 +85,13 @@ const App = () => {
       if (!data) {
         const { error: insertError } = await supabase
           .from('users')
-          .insert([{ telegram_id: telegramId, points: 0 }]);
+          .insert([
+            {
+              telegram_id: telegramId,
+              username: telegramUserData?.username || 'User',
+              points: 0,
+            },
+          ]);
 
         if (insertError) {
           console.error('Error inserting new user:', insertError);
@@ -103,25 +109,28 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (telegramUserId == null) {
+    if (!telegramUser?.id) {
       return;
     }
 
     const syncPoints = async () => {
       const { error } = await supabase
         .from('users')
-        .upsert(
-          { telegram_id: telegramUserId, points },
-          { onConflict: 'telegram_id' }
-        );
+        .update({
+          username: telegramUser.username || 'User',
+          points,
+        })
+        .eq('telegram_id', telegramUser.id);
 
       if (error) {
         console.error('Error syncing user points:', error);
       }
     };
 
-    syncPoints();
-  }, [points, telegramUserId]);
+    const debounceTimer = window.setTimeout(syncPoints, 200);
+
+    return () => window.clearTimeout(debounceTimer);
+  }, [points, telegramUser?.id, telegramUser?.username]);
 
   // useEffect hook to restore energy over time
   useEffect(() => {
