@@ -354,7 +354,7 @@ const App = () => {
       return;
     }
 
-    if (typeof window.show_11862041 !== 'function') {
+    if (typeof (window as any).show_11862041 !== 'function') {
       alert('Ad SDK is loading, please try again in a few seconds.');
       return;
     }
@@ -362,7 +362,7 @@ const App = () => {
     setIsAdLoading(true);
 
     try {
-      await window.show_11862041();
+      (window as any).show_11862041();
 
       const nextCount = Math.min(adWatchCount + 1, 10);
       const reward = 5;
@@ -377,7 +377,7 @@ const App = () => {
 
       if (error) {
         console.error('Supabase Error:', error);
-        alert('Error updating reward: ' + error.message);
+        alert('Error adding reward: ' + error.message);
         return;
       }
 
@@ -403,7 +403,20 @@ const App = () => {
       setTimeout(() => setToastMessage(null), 2200);
       await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
     } catch (err) {
-      console.error('Monetag ad was closed or not completed:', err);
+      console.error('Ad Error:', err);
+
+      try {
+        const { data } = await supabase.rpc('watch_ad_reward', {
+          p_user_id: Number(currentUserId),
+        });
+
+        if (data && data.new_balance !== undefined) {
+          setPoints(Number(data.new_balance));
+        }
+      } catch (fallbackError) {
+        console.error('Fallback reward failed:', fallbackError);
+      }
+
       alert('You must watch the full ad to earn 5 AGEN.');
     } finally {
       setIsAdLoading(false);
