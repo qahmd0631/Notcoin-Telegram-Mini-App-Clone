@@ -154,12 +154,13 @@ const App = () => {
     }
 
     const todayKey = getUtcDateKey();
+    const safeCount = Math.max(0, Math.min(10, nextCount));
     const { error } = await supabase
       .from('user_ad_views')
       .upsert(
         {
           telegram_id: Number(userId),
-          ad_count: Math.max(0, Math.min(10, nextCount)),
+          ad_count: safeCount,
           last_day_utc: todayKey,
           last_watched_at: new Date().toISOString(),
         },
@@ -171,8 +172,51 @@ const App = () => {
       return 0;
     }
 
-    setAdWatchCount(Math.max(0, Math.min(10, nextCount)));
-    return Math.max(0, Math.min(10, nextCount));
+    setAdWatchCount(safeCount);
+    return safeCount;
+  };
+
+  const resolveRpcAdCount = (payload: unknown): number | null => {
+    if (payload === null || payload === undefined) {
+      return null;
+    }
+
+    if (Array.isArray(payload)) {
+      for (const item of payload) {
+        const value = resolveRpcAdCount(item);
+        if (value !== null) {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    if (typeof payload !== 'object') {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const possibleKeys = ['new_ad_count', 'new_count', 'daily_ads_completed', 'watched_count', 'ad_count', 'count'];
+    for (const key of possibleKeys) {
+      const value = record[key];
+      if (value !== undefined && value !== null && value !== '') {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) {
+          return Math.max(0, Math.min(10, numeric));
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const syncAdCounterFromReward = (payload: unknown, fallbackCount?: number) => {
+    const resolved = resolveRpcAdCount(payload);
+    setAdWatchCount((prev) => {
+      const current = Number.isFinite(prev) ? prev : 0;
+      const nextValue = resolved ?? Math.min(fallbackCount ?? current + 1, 10);
+      return Math.max(0, Math.min(10, Number(nextValue)));
+    });
   };
 
   const miningRate = 0.0001;
@@ -500,13 +544,6 @@ const App = () => {
     try {
       await (window as any).show_11862041();
 
-      const nextCount = Math.min(currentDailyCount + 1, 10);
-      const reward = 5;
-      const nextPoints = Number((points + reward).toFixed(4));
-
-      await persistDailyAdCount(currentUserId, nextCount);
-      setPoints(nextPoints);
-
       const { data, error } = await supabase.rpc('watch_ad_reward', {
         p_user_id: Number(currentUserId),
       });
@@ -517,8 +554,16 @@ const App = () => {
         return;
       }
 
+      const nextCount = Math.min(resolveRpcAdCount(data) ?? currentDailyCount + 1, 10);
+      const reward = 5;
+      const nextPoints = Number((points + reward).toFixed(4));
+
+      syncAdCounterFromReward(data, nextCount);
+      await persistDailyAdCount(currentUserId, nextCount);
+      setPoints(nextPoints);
+
       console.log('watch_ad_reward success', data);
-      alert('Success! 5 AGEN added to your balance.');
+      alert(`Success! Ad watched (${nextCount}/10). Reward added.`);
 
       await persistUserTaskStatus('watch_ad', {
         completed: nextCount >= 10,
@@ -677,7 +722,19 @@ const App = () => {
       }
     }
 
-    const nextCount = Math.min(currentDailyCount + 1, 10);
+    const { data, error } = await supabase.rpc('watch_ad_reward', {
+      p_user_id: Number(currentUserId),
+    });
+
+    if (error) {
+      console.error('[Monetag Boost] Supabase reward failed:', error);
+      setToastMessage('Reward sync failed. Please try again.');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    const nextCount = Math.min(resolveRpcAdCount(data) ?? currentDailyCount + 1, 10);
+    syncAdCounterFromReward(data, nextCount);
     await persistDailyAdCount(currentUserId, nextCount);
     setSpeedBoostSecondsLeft(60);
     setToastMessage('2x speed boost activated for 60 seconds.');
@@ -693,15 +750,55 @@ const App = () => {
       miningLastUpdatedRef.current = Date.now();
     }
 
-    const adReward = 0.05;
-    const nextPoints = Number((points + adReward).toFixed(4));
     const webApp = window.Telegram?.WebApp;
     const tgUser = webApp?.initDataUnsafe?.user ?? null;
     const userId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
 
+    if (!userId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to watch ads and earn rewards.');
+      return;
+    }
+
+    const currentDailyCount = await syncDailyAdCount(userId);
+    if (currentDailyCount >= 10) {
+      setToastMessage('Daily ad limit reached (10/10).');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    if (typeof (window as any).show_11862041 === 'function') {
+      try {
+        await (window as any).show_11862041();
+      } catch (err) {
+        console.error('Ad execution error:', err);
+        setToastMessage('Ad did not complete. Please try again.');
+        setTimeout(() => setToastMessage(null), 2200);
+        return;
+      }
+    }
+
+    const { data, error } = await supabase.rpc('watch_ad_reward', {
+      p_user_id: Number(userId),
+    });
+
+    if (error) {
+      console.error('watch_ad_reward failed:', error);
+      setToastMessage('Reward sync failed. Please try again.');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    const serverAdCount = resolveRpcAdCount(data);
+    const nextCount = Math.min(serverAdCount ?? currentDailyCount + 1, 10);
+    syncAdCounterFromReward(data, nextCount);
+    await persistDailyAdCount(userId, nextCount);
+
+    const adReward = 0.05;
+    const nextPoints = Number((points + adReward).toFixed(4));
     setPoints(nextPoints);
     setBonusMinutes(normalizedBonus + 5);
     await persistUserBalance(nextPoints, 'ad_bonus', userId);
+    alert(`Success! Ad watched (${nextCount}/10). Reward added.`);
   };
 
   const handleMinerUpgrade = async (level: number) => {
