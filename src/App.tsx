@@ -103,6 +103,38 @@ const App = () => {
 
   const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
 
+  const fetchInitialAdCount = async (userId: string | null) => {
+    if (!userId) {
+      setAdWatchCount(0);
+      return 0;
+    }
+
+    const todayKey = getUtcDateKey();
+    const { data, error } = await supabase
+      .from('user_ad_logs')
+      .select('user_id, daily_count, last_ad_date, last_day_utc, updated_at')
+      .eq('user_id', String(userId))
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.warn('[Ad Count] Failed to load saved ad count:', error);
+      setAdWatchCount(0);
+      return 0;
+    }
+
+    if (!data) {
+      setAdWatchCount(0);
+      return 0;
+    }
+
+    const savedCount = Number(data.daily_count ?? 0);
+    const savedDate = (data.last_ad_date ?? data.last_day_utc ?? null) as string | null;
+    const nextCount = savedDate === todayKey ? savedCount : 0;
+
+    setAdWatchCount(nextCount);
+    return nextCount;
+  };
+
   const syncDailyAdCount = async (userId: string | null) => {
     if (!userId) {
       setAdWatchCount(0);
@@ -112,8 +144,8 @@ const App = () => {
     const todayKey = getUtcDateKey();
     const { data, error } = await supabase
       .from('user_ad_logs')
-      .select('*')
-      .eq('telegram_id', Number(userId))
+      .select('user_id, daily_count, last_ad_date, last_day_utc, updated_at')
+      .eq('user_id', String(userId))
       .maybeSingle();
 
     if (error && error.code !== 'PGRST116') {
@@ -124,7 +156,7 @@ const App = () => {
 
     const record = (data ?? null) as Record<string, unknown> | null;
     const storedCount = Number(record?.daily_count ?? record?.ad_count ?? 0);
-    const storedDay = (record?.last_day_utc ?? record?.day_key ?? record?.log_date ?? null) as string | null;
+    const storedDay = (record?.last_ad_date ?? record?.last_day_utc ?? record?.day_key ?? record?.log_date ?? null) as string | null;
     const normalizedCount = storedDay === todayKey ? storedCount : 0;
 
     if (!record || storedDay !== todayKey) {
@@ -132,13 +164,12 @@ const App = () => {
         .from('user_ad_logs')
         .upsert(
           {
-            telegram_id: Number(userId),
+            user_id: String(userId),
             daily_count: normalizedCount,
-            total_watched: normalizedCount,
-            last_day_utc: todayKey,
+            last_ad_date: todayKey,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'telegram_id' }
+          { onConflict: 'user_id' }
         );
 
       if (upsertError) {
@@ -161,13 +192,12 @@ const App = () => {
       .from('user_ad_logs')
       .upsert(
         {
-          telegram_id: Number(userId),
+          user_id: String(userId),
           daily_count: safeCount,
-          total_watched: safeCount,
-          last_day_utc: todayKey,
+          last_ad_date: todayKey,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'telegram_id' }
+        { onConflict: 'user_id' }
       );
 
     if (error) {
@@ -1004,6 +1034,7 @@ const App = () => {
         }
       }
 
+      await fetchInitialAdCount(realUserId);
       await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
     };
