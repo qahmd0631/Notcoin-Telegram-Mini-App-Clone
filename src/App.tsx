@@ -882,9 +882,8 @@ const App = () => {
 
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
-            <img src="/logo.png" alt="AURA GEN" className="h-8 w-8 object-contain" />
-            <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl 1 • IDLE</div>
+          <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
+            Lvl 1 • IDLE
           </div>
           <div className="flex items-center gap-2">
             {walletAddress && (
@@ -1149,9 +1148,9 @@ const App = () => {
     <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-[#171712]">
       <div className="mb-5 rounded-[28px] bg-[#f7cc5a] p-5 shadow-[0_12px_30px_rgba(247,191,74,0.3)]">
         <p className="text-[10px] uppercase tracking-[0.22em] text-[#442d03]">Referral Program</p>
-        <h1 className="mt-2 text-3xl font-black text-[#1b1412]">Frens</h1>
+        <h1 className="mt-2 text-3xl font-black text-[#1b1412]">AGEN COIN</h1>
         <div className="mt-4 rounded-2xl bg-[#fff5d5] p-4 text-center text-base font-semibold text-[#2f2b21]">
-          Get 10 AGEN points for each friend invited!
+          Get 10 AGEN coins for each friend invited!
         </div>
       </div>
 
