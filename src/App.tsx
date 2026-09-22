@@ -98,6 +98,8 @@ const App = () => {
   const [isAdLoading, setIsAdLoading] = useState(false);
   const [balance, setBalance] = useState(0);
   const [miningRate, setMiningRate] = useState(0.0001);
+  const [loginBaseBalance, setLoginBaseBalance] = useState(0);
+  const [liveMiningDisplay, setLiveMiningDisplay] = useState(0);
   const [pendingMiningRewards, setPendingMiningRewards] = useState(0);
   const [taskStatus, setTaskStatus] = useState<Record<string, { opened: boolean; completed: boolean; claimed: boolean }>>({
     watch_ad: { opened: false, completed: false, claimed: false },
@@ -107,6 +109,7 @@ const App = () => {
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
   const lastClaimTimeRef = useRef<string | null>(null);
+  const loginLastAnchorRef = useRef<number | null>(null);
 
   const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
 
@@ -124,6 +127,34 @@ const App = () => {
     return Number((elapsedSeconds * rate).toFixed(4));
   };
 
+  const syncUserLoginState = async (userId: string | null) => {
+    if (!userId) {
+      return;
+    }
+
+    const { data, error } = await supabase.rpc('handle_user_login_sync', {
+      p_user_id: String(userId),
+    });
+
+    if (error || !data) {
+      console.warn('[Login Sync] handle_user_login_sync failed:', error ?? 'no data');
+      return;
+    }
+
+    const nextBalance = Number(data.new_balance ?? data.balance ?? 0);
+    const nextMiningRate = Number(data.current_speed ?? data.mining_rate ?? 0.0001);
+    const nextMinedAmount = Number(data.mined_amount ?? data.pending_rewards ?? 0);
+
+    setLoginBaseBalance(nextBalance);
+    setBalance(nextBalance);
+    setPoints(nextBalance);
+    setMiningRate(nextMiningRate);
+    setPendingMiningRewards(nextMinedAmount);
+    setMinedThisSession(nextMinedAmount);
+    setLiveMiningDisplay(nextBalance);
+    loginLastAnchorRef.current = Date.now();
+  };
+
   const syncAppState = async (userId: string | null) => {
     if (!userId) {
       setAdCount(0);
@@ -134,6 +165,8 @@ const App = () => {
       setPendingMiningRewards(0);
       return;
     }
+
+    await syncUserLoginState(userId);
 
     const { data, error } = await supabase.rpc('get_master_app_state', {
       p_user_id: String(userId),
@@ -534,8 +567,9 @@ const App = () => {
   const holdingBalance = Number.isFinite(points * 0.75) ? Number((points * 0.75).toFixed(4)) : 0;
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
-  const displayedMiningRewards = pendingMiningRewards > 0 ? pendingMiningRewards : safeMinedThisSession;
   const displayedBalance = balance > 0 ? balance : points;
+  const deltaMiningRewards = Number(Math.max(0, liveMiningDisplay - loginBaseBalance).toFixed(4));
+  const miningCounterValue = Number(Math.max(deltaMiningRewards, pendingMiningRewards, safeMinedThisSession).toFixed(4));
 
   const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
     if (typeof window === 'undefined') {
@@ -1058,6 +1092,7 @@ const App = () => {
     }
 
     const refreshAppState = () => {
+      void syncUserLoginState(telegramId);
       void syncAppState(telegramId);
     };
 
@@ -1065,6 +1100,23 @@ const App = () => {
     window.addEventListener('focus', refreshAppState);
     return () => window.removeEventListener('focus', refreshAppState);
   }, [telegramId]);
+
+  useEffect(() => {
+    if (!loginLastAnchorRef.current || miningRate <= 0) {
+      setLiveMiningDisplay(loginBaseBalance);
+      return;
+    }
+
+    const updateLiveCounter = () => {
+      const elapsedSeconds = (Date.now() - loginLastAnchorRef.current!) / 1000;
+      const nextValue = Number((loginBaseBalance + elapsedSeconds * (miningRate / 3600)).toFixed(4));
+      setLiveMiningDisplay(nextValue);
+    };
+
+    updateLiveCounter();
+    const liveCounterTimer = window.setInterval(updateLiveCounter, 1000);
+    return () => window.clearInterval(liveCounterTimer);
+  }, [loginBaseBalance, miningRate, telegramId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1153,6 +1205,7 @@ const App = () => {
         }
       }
 
+      await syncUserLoginState(realUserId);
       await initAppState(realUserId);
       await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
@@ -1310,7 +1363,7 @@ const App = () => {
           <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
             <div className="text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">Live Counter</div>
             <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
-              {`+${displayedMiningRewards.toFixed(4)} AGEN`}
+              {`+${miningCounterValue.toFixed(4)} AGEN`}
             </div>
             <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
               <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
@@ -1396,7 +1449,7 @@ const App = () => {
           </div>
           <div className="rounded-2xl bg-[#11161b] p-3">
             <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
-            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{(effectiveMiningRate * 10000).toFixed(2)} TH/s</div>
+            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{(miningRate * 10000).toFixed(2)} TH/s</div>
           </div>
         </div>
 
