@@ -548,7 +548,7 @@ const App = () => {
       await (window as any).show_11862041();
 
       const { data, error } = await supabase.rpc('watch_ad_reward', {
-        p_user_id: Number(currentUserId),
+        p_user_id: String(currentUserId),
       });
 
       if (error) {
@@ -559,7 +559,7 @@ const App = () => {
 
       if (data?.success === false) {
         setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
-        setToastMessage('Daily ad limit reached (10/10).');
+        setToastMessage(data?.message || 'Daily ad limit reached (10/10).');
         setTimeout(() => setToastMessage(null), 2200);
         return;
       }
@@ -735,7 +735,7 @@ const App = () => {
     }
 
     const { data, error } = await supabase.rpc('watch_ad_reward', {
-      p_user_id: Number(currentUserId),
+      p_user_id: String(currentUserId),
     });
 
     if (error) {
@@ -747,7 +747,7 @@ const App = () => {
 
     if (data?.success === false) {
       setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
-      setToastMessage('Daily ad limit reached (10/10).');
+      setToastMessage(data?.message || 'Daily ad limit reached (10/10).');
       setTimeout(() => setToastMessage(null), 2200);
       return;
     }
@@ -800,7 +800,7 @@ const App = () => {
     }
 
     const { data, error } = await supabase.rpc('watch_ad_reward', {
-      p_user_id: Number(userId),
+      p_user_id: String(userId),
     });
 
     if (error) {
@@ -812,7 +812,7 @@ const App = () => {
 
     if (data?.success === false) {
       setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
-      setToastMessage('Daily ad limit reached (10/10).');
+      setToastMessage(data?.message || 'Daily ad limit reached (10/10).');
       setTimeout(() => setToastMessage(null), 2200);
       return;
     }
