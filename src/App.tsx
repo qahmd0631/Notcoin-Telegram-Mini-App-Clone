@@ -106,10 +106,11 @@ const App = () => {
   const userFriendlyAddress = useTonAddress();
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
+  const lastClaimTimeRef = useRef<string | null>(null);
 
   const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
 
-  const computeOfflineMiningReward = (lastClaimRaw: string | null | undefined, rate: number) => {
+  const computeMiningDeltaReward = (lastClaimRaw: string | null | undefined, rate: number) => {
     if (!lastClaimRaw) {
       return 0;
     }
@@ -119,8 +120,8 @@ const App = () => {
       return 0;
     }
 
-    const elapsedHours = Math.max(0, (Date.now() - lastClaimMs) / 3600000);
-    return Number((elapsedHours * rate).toFixed(4));
+    const elapsedSeconds = Math.max(0, (Date.now() - lastClaimMs) / 1000);
+    return Number((elapsedSeconds * rate).toFixed(4));
   };
 
   const syncAppState = async (userId: string | null) => {
@@ -149,8 +150,10 @@ const App = () => {
     const nextLocked = Boolean(data.is_ad_locked ?? nextAdCount >= 10);
     const nextBalance = Number(data.balance ?? data.points ?? 0);
     const nextMiningRate = Number(data.mining_rate ?? 0.0001);
-    const nextPendingRewards = Number(data.pending_rewards ?? computeOfflineMiningReward(data.last_claim_time ?? data.last_claimed_at ?? null, nextMiningRate));
+    const nextLastClaimTime = (data.last_claim_time ?? data.last_active_time ?? data.last_claimed_at ?? null) as string | null;
+    const nextPendingRewards = Number(data.pending_rewards ?? computeMiningDeltaReward(nextLastClaimTime, nextMiningRate));
 
+    lastClaimTimeRef.current = nextLastClaimTime;
     setAdCount(nextAdCount);
     setAdWatchCount(nextAdCount);
     setIsAdLocked(nextLocked);
@@ -181,9 +184,10 @@ const App = () => {
     const nextLocked = Boolean(data.is_ad_locked ?? nextAdCount >= 10);
     const nextBalance = Number(data.balance ?? data.points ?? 0);
     const nextMiningRate = Number(data.mining_rate ?? 0.0001);
-    const nextLastClaimTime = (data.last_claim_time ?? data.last_claimed_at ?? null) as string | null;
-    const nextPendingRewards = Number(data.pending_rewards ?? computeOfflineMiningReward(nextLastClaimTime, nextMiningRate));
+    const nextLastClaimTime = (data.last_claim_time ?? data.last_active_time ?? data.last_claimed_at ?? null) as string | null;
+    const nextPendingRewards = Number(data.pending_rewards ?? computeMiningDeltaReward(nextLastClaimTime, nextMiningRate));
 
+    lastClaimTimeRef.current = nextLastClaimTime;
     setAdCount(nextAdCount);
     setAdWatchCount(nextAdCount);
     setIsAdLocked(nextLocked);
@@ -812,6 +816,7 @@ const App = () => {
         .update({
           points: newTotalPoints,
           last_claim_time: nowIso,
+          last_active_time: nowIso,
         })
         .eq('telegram_id', activeTelegramId);
 
@@ -826,6 +831,7 @@ const App = () => {
       setPoints(newTotalPoints);
       setPendingMiningRewards(0);
       setMinedThisSession(0);
+      lastClaimTimeRef.current = nowIso;
       setIsMining(true);
       miningLastUpdatedRef.current = Date.now();
       return;
@@ -1160,14 +1166,19 @@ const App = () => {
       return;
     }
 
-    const rewardTimer = window.setInterval(() => {
-      const perSecondRate = (miningRate / 3600) * (speedBoostSecondsLeft > 0 ? 2 : 1);
-      setPendingMiningRewards((prev) => Number((prev + perSecondRate).toFixed(4)));
-      setMinedThisSession((prev) => Number((prev + perSecondRate).toFixed(4)));
-    }, 1000);
+    const updatePassiveMining = () => {
+      const sourceTime = lastClaimTimeRef.current ?? new Date().toISOString();
+      const lastEpoch = new Date(sourceTime).getTime();
+      const elapsedSeconds = Number.isFinite(lastEpoch) ? Math.max(0, (Date.now() - lastEpoch) / 1000) : 0;
+      const liveReward = Number((elapsedSeconds * effectiveMiningRate).toFixed(4));
+      setPendingMiningRewards(liveReward);
+      setMinedThisSession(liveReward);
+    };
 
+    updatePassiveMining();
+    const rewardTimer = window.setInterval(updatePassiveMining, 1000);
     return () => window.clearInterval(rewardTimer);
-  }, [isMining, miningRate, speedBoostSecondsLeft]);
+  }, [isMining, effectiveMiningRate]);
 
   useEffect(() => {
     if (speedBoostSecondsLeft <= 0) {
@@ -1196,16 +1207,11 @@ const App = () => {
     }
 
     const miningInterval = window.setInterval(() => {
-      const now = Date.now();
-      const lastUpdated = miningLastUpdatedRef.current ?? now;
-      const elapsedSeconds = Math.max((now - lastUpdated) / 1000, 0);
-
-      if (elapsedSeconds > 0) {
-        const earnedFromElapsedTime = Number((elapsedSeconds * effectiveMiningRate).toFixed(4));
-        setMinedThisSession((prevValue) => Number((prevValue + earnedFromElapsedTime).toFixed(4)));
-      }
-
-      miningLastUpdatedRef.current = now;
+      const baseTimestamp = lastClaimTimeRef.current ?? new Date().toISOString();
+      const earnedFromElapsedTime = computeMiningDeltaReward(baseTimestamp, effectiveMiningRate);
+      setMinedThisSession(earnedFromElapsedTime);
+      setPendingMiningRewards(earnedFromElapsedTime);
+      miningLastUpdatedRef.current = Date.now();
     }, 1000);
 
     return () => window.clearInterval(miningInterval);
