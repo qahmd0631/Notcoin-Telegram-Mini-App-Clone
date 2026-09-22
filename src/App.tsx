@@ -103,13 +103,27 @@ const App = () => {
 
   const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
 
+  const isAdLimitLocked = (count: number, lastDate: string | null) => {
+    if (count < 10 || !lastDate) {
+      return false;
+    }
+
+    const todayKey = getUtcDateKey();
+    if (lastDate === todayKey) {
+      return true;
+    }
+
+    const lastDateMs = Date.parse(`${lastDate}T00:00:00.000Z`);
+    const nowMs = Date.now();
+    return Number.isFinite(lastDateMs) && nowMs - lastDateMs < 24 * 60 * 60 * 1000;
+  };
+
   const fetchInitialAdCount = async (userId: string | null) => {
     if (!userId) {
       setAdWatchCount(0);
       return 0;
     }
 
-    const todayKey = getUtcDateKey();
     const { data, error } = await supabase
       .from('user_ad_logs')
       .select('user_id, daily_count, last_ad_date, last_day_utc, updated_at')
@@ -129,7 +143,8 @@ const App = () => {
 
     const savedCount = Number(data.daily_count ?? 0);
     const savedDate = (data.last_ad_date ?? data.last_day_utc ?? null) as string | null;
-    const nextCount = savedDate === todayKey ? savedCount : 0;
+    const locked = isAdLimitLocked(savedCount, savedDate);
+    const nextCount = locked ? Math.min(savedCount, 10) : 0;
 
     setAdWatchCount(nextCount);
     return nextCount;
@@ -157,9 +172,10 @@ const App = () => {
     const record = (data ?? null) as Record<string, unknown> | null;
     const storedCount = Number(record?.daily_count ?? record?.ad_count ?? 0);
     const storedDay = (record?.last_ad_date ?? record?.last_day_utc ?? record?.day_key ?? record?.log_date ?? null) as string | null;
-    const normalizedCount = storedDay === todayKey ? storedCount : 0;
+    const locked = isAdLimitLocked(storedCount, storedDay);
+    const normalizedCount = locked ? Math.min(storedCount, 10) : 0;
 
-    if (!record || storedDay !== todayKey) {
+    if (!record || !locked) {
       const { error: upsertError } = await supabase
         .from('user_ad_logs')
         .upsert(
@@ -562,7 +578,7 @@ const App = () => {
 
     const currentDailyCount = await syncDailyAdCount(currentUserId);
     if (currentDailyCount >= 10 || isAdLoading) {
-      setToastMessage('Daily ad limit reached (10/10).');
+      setToastMessage('Daily ad limit reached (10/10). Available in 24h.');
       setTimeout(() => setToastMessage(null), 2200);
       return;
     }
@@ -588,8 +604,9 @@ const App = () => {
       }
 
       if (data?.success === false) {
-        setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
-        setToastMessage(data?.message || 'Daily ad limit reached (10/10).');
+        const blockedCount = Math.min(Number(data?.new_count ?? adWatchCount), 10);
+        setAdWatchCount(blockedCount);
+        setToastMessage(data?.message || 'Daily ad limit reached (10/10). Available in 24h.');
         setTimeout(() => setToastMessage(null), 2200);
         return;
       }
@@ -630,7 +647,7 @@ const App = () => {
 
       try {
         const { data } = await supabase.rpc('watch_ad_reward', {
-          p_user_id: Number(currentUserId),
+          p_user_id: String(currentUserId),
         });
 
         if (data && data.new_balance !== undefined) {
@@ -748,7 +765,7 @@ const App = () => {
 
     const currentDailyCount = await syncDailyAdCount(currentUserId);
     if (currentDailyCount >= 10) {
-      setToastMessage('Daily ad limit reached (10/10).');
+      setToastMessage('Daily ad limit reached (10/10). Available in 24h.');
       setTimeout(() => setToastMessage(null), 2200);
       return;
     }
@@ -813,7 +830,7 @@ const App = () => {
 
     const currentDailyCount = await syncDailyAdCount(userId);
     if (currentDailyCount >= 10) {
-      setToastMessage('Daily ad limit reached (10/10).');
+      setToastMessage('Daily ad limit reached (10/10). Available in 24h.');
       setTimeout(() => setToastMessage(null), 2200);
       return;
     }
@@ -1195,7 +1212,7 @@ const App = () => {
                 disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
               >
                 <span className="text-[11px] font-black">⚡</span>
-                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? '10/10' : '2x'}</span>
+                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? 'LOCK' : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
               <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
@@ -1233,7 +1250,7 @@ const App = () => {
           onClick={() => void handleSpeedBoost()}
           disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
         >
-          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? '10/10' : '2x Boost'}
+          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? 'Limit 10/10' : '2x Boost'}
         </button>
       </div>
 
@@ -1359,7 +1376,7 @@ const App = () => {
           const isCompleted = task.type === 'ad' ? adWatchCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
           const buttonLabel = task.type === 'ad'
             ? isCompleted
-              ? 'Completed'
+              ? 'Locked'
               : 'Watch'
             : status.claimed || status.completed
               ? 'Completed'
@@ -1378,7 +1395,9 @@ const App = () => {
                     <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Mission</p>
                     <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
                     {task.type === 'ad' && (
-                      <p className="mt-2 text-xs text-white/70">Watched: {adWatchCount}/{task.max_daily}</p>
+                      <p className="mt-2 text-xs text-white/70">
+                        {adWatchCount >= 10 ? 'Limit Reached (10/10) • Available in 24h' : `Watched: ${adWatchCount}/${task.max_daily}`}
+                      </p>
                     )}
                   </div>
                 </div>
