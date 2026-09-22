@@ -354,17 +354,15 @@ const App = () => {
       return;
     }
 
-    const monetagAd = window.show_11862041;
-    if (typeof monetagAd !== 'function') {
-      setToastMessage('No ads available at the moment, please try again later');
-      setTimeout(() => setToastMessage(null), 2200);
+    if (typeof window.show_11862041 !== 'function') {
+      alert('Ad SDK is loading, please try again in a few seconds.');
       return;
     }
 
     setIsAdLoading(true);
 
     try {
-      await Promise.resolve(monetagAd());
+      await window.show_11862041();
 
       const nextCount = Math.min(adWatchCount + 1, 10);
       const reward = 5;
@@ -373,16 +371,18 @@ const App = () => {
       setAdWatchCount(nextCount);
       setPoints(nextPoints);
 
-      const { error } = await supabase.rpc('watch_ad_reward', {
+      const { data, error } = await supabase.rpc('watch_ad_reward', {
         p_user_id: Number(currentUserId),
       });
 
       if (error) {
-        console.warn('[Tasks] watch_ad_reward RPC failed:', error);
-        setToastMessage('Failed to credit reward. Please try again.');
-        setTimeout(() => setToastMessage(null), 2200);
+        console.error('Supabase Error:', error);
+        alert('Error updating reward: ' + error.message);
         return;
       }
+
+      console.log('watch_ad_reward success', data);
+      alert('Success! 5 AGEN added to your balance.');
 
       await persistUserTaskStatus('watch_ad', {
         completed: nextCount >= 10,
@@ -402,11 +402,9 @@ const App = () => {
       setToastMessage(nextCount >= 10 ? 'Daily ad task complete!' : 'Ad reward added! +5 AGEN');
       setTimeout(() => setToastMessage(null), 2200);
       await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
-    } catch (error) {
-      console.log('Ad error or closed early:', error);
-      window.alert('You must watch the full ad to earn 5 AGEN.');
-      setToastMessage('No ads available at the moment, please try again later');
-      setTimeout(() => setToastMessage(null), 2200);
+    } catch (err) {
+      console.error('Monetag ad was closed or not completed:', err);
+      alert('You must watch the full ad to earn 5 AGEN.');
     } finally {
       setIsAdLoading(false);
     }
