@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import './index.css';
 import Arrow from './icons/Arrow';
-import { bear, coin, highVoltage, notcoin, rocket, trophy } from './images';
+import { agenMark, bear, highVoltage, rocket, trophy } from './images';
 
 const App = () => {
   const [points, setPoints] = useState(29857775);
@@ -48,12 +48,12 @@ const App = () => {
 
         <div className="fixed top-0 left-0 w-full px-4 pt-8 z-10 flex flex-col items-center text-white">
           <div className="w-full cursor-pointer">
-            <div className="bg-[#1f1f1f] text-center py-2 rounded-xl">
-              <p className="text-lg">Join squad <Arrow size={18} className="ml-0 mb-1 inline-block" /></p>
+            <div className="brand-banner text-center py-2 rounded-xl">
+              <p className="text-lg"><span className="brand-name">AGEN</span> squad <Arrow size={18} className="ml-0 mb-1 inline-block" /></p>
             </div>
           </div>
           <div className="mt-12 text-5xl font-bold flex items-center">
-            <img src={coin} width={44} height={44} />
+            <img src={agenMark} width={44} height={44} alt="AGEN" />
             <span className="ml-2">{points.toLocaleString()}</span>
           </div>
           <div className="text-base mt-2 flex items-center">
@@ -82,7 +82,7 @@ const App = () => {
                 </button>
                 <div className="h-[48px] w-[2px] bg-[#fddb6d]"></div>
                 <button className="flex flex-col items-center gap-1">
-                  <img src={coin} width={24} height={24} alt="High Voltage" />
+                  <img src={agenMark} width={24} height={24} alt="AGEN" />
                   <span>Earn</span>
                 </button>
                 <div className="h-[48px] w-[2px] bg-[#fddb6d]"></div>
@@ -100,8 +100,20 @@ const App = () => {
 
 
         <div className="flex-grow flex items-center justify-center">
-          <div className="relative mt-4" onClick={handleClick}>
-            <img src={notcoin} width={256} height={256} alt="notcoin" />
+          <div
+            className="tap-button relative mt-4"
+            onClick={handleClick}
+            role="button"
+            tabIndex={0}
+            aria-label="Tap the AGEN mark to earn points"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.currentTarget.click();
+              }
+            }}
+          >
+            <img className="tap-button-image" src={agenMark} width={256} height={256} alt="AGEN golden triangular loop" />
             {clicks.map((click) => (
               <div
                 key={click.id}
