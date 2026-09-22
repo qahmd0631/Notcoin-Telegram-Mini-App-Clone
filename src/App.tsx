@@ -5,6 +5,7 @@ import { supabase } from './supabase';
 
 const App = () => {
   const [points, setPoints] = useState(0);
+  const [isBalanceLoaded, setIsBalanceLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
@@ -25,7 +26,36 @@ const App = () => {
   const safeSessionSeconds = Number.isFinite(sessionSeconds) ? sessionSeconds : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? minedThisSession : 0;
 
-  const handleMiningAction = () => {
+  const persistUserBalance = async (nextPoints: number, source: string) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const tgId = Number((window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? 999999);
+    const username = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.username || telegramUser?.username || 'User';
+    const normalizedPoints = Number(Number(nextPoints).toFixed(4));
+
+    if (!Number.isFinite(tgId)) {
+      console.warn('[Supabase]', source, 'missing Telegram ID; skipping save');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        username,
+        points: normalizedPoints,
+      })
+      .eq('telegram_id', tgId);
+
+    console.log('[Supabase]', source, { tgId, username, normalizedPoints, data, error });
+
+    if (error) {
+      console.error('[Supabase] update failed for', source, error);
+    }
+  };
+
+  const handleMiningAction = async () => {
     if (!isMining && !isClaimReady) {
       setSessionSeconds(0);
       setMinedThisSession(0);
@@ -36,11 +66,14 @@ const App = () => {
 
     if (isClaimReady) {
       const claimValue = Number(minedThisSession.toFixed(4));
-      setPoints((prevPoints) => Number((prevPoints + claimValue).toFixed(4)));
+      const newTotalPoints = Number((points + claimValue).toFixed(4));
+
+      setPoints(newTotalPoints);
       setMinedThisSession(0);
       setSessionSeconds(0);
       setIsClaimReady(false);
       setIsMining(false);
+      await persistUserBalance(newTotalPoints, 'claim');
     }
   };
 
@@ -73,37 +106,31 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.clear();
-    }
-
     if (typeof window === 'undefined') {
       return;
     }
 
     const telegramUserData = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const telegramId = typeof telegramUserData?.id === 'number' ? telegramUserData.id : null;
+    const tgId = Number((window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id ?? 999999);
+    const username = telegramUserData?.username || 'User';
     setTelegramUser(telegramUserData ?? null);
 
-    const nextLink = telegramId == null
+    const nextLink = tgId === 999999
       ? 'https://t.me/Copmujbot/Gop'
-      : `https://t.me/Copmujbot/Gop?startapp=ref_${telegramId}`;
+      : `https://t.me/Copmujbot/Gop?startapp=ref_${tgId}`;
 
     setReferralLink(nextLink);
-
-    if (telegramId == null) {
-      return;
-    }
 
     const loadUserPoints = async () => {
       const { data, error } = await supabase
         .from('users')
         .select('points')
-        .eq('telegram_id', telegramId)
+        .eq('telegram_id', tgId)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user points:', error);
+        setIsBalanceLoaded(true);
         return;
       }
 
@@ -112,29 +139,35 @@ const App = () => {
           .from('users')
           .insert([
             {
-              telegram_id: telegramId,
-              username: telegramUserData?.username || 'User',
+              telegram_id: tgId,
+              username,
               points: 0,
             },
           ]);
 
         if (insertError) {
           console.error('Error inserting new user:', insertError);
+          setIsBalanceLoaded(true);
           return;
         }
 
+        console.log('[Supabase] New user created with zero balance', { tgId, username });
         setPoints(0);
+        setIsBalanceLoaded(true);
         return;
       }
 
-      setPoints(Number(data.points ?? 0));
+      const savedPoints = Number(data.points ?? 0);
+      console.log('[Supabase] Loaded saved user balance', { tgId, savedPoints });
+      setPoints(savedPoints);
+      setIsBalanceLoaded(true);
     };
 
     loadUserPoints();
   }, []);
 
   useEffect(() => {
-    if (!telegramUser?.id) {
+    if (!telegramUser?.id || !isBalanceLoaded) {
       return;
     }
 
@@ -149,13 +182,15 @@ const App = () => {
 
       if (error) {
         console.error('Error syncing user points:', error);
+      } else {
+        console.log('[Supabase] Synced live balance', { telegramId: telegramUser.id, points });
       }
     };
 
     const debounceTimer = window.setTimeout(syncPoints, 200);
 
     return () => window.clearTimeout(debounceTimer);
-  }, [points, telegramUser?.id, telegramUser?.username]);
+  }, [points, telegramUser?.id, telegramUser?.username, isBalanceLoaded]);
 
   useEffect(() => {
     if (!isMining) {
