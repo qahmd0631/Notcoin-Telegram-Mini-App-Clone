@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
-import { AdController } from '@adsgram/ai';
 import './index.css';
 import { agenMark } from './images';
 import { supabase } from './supabase';
@@ -32,18 +31,7 @@ declare global {
         };
       };
     };
-    Adsgram?: {
-      init: (config: { blockId: string }) => {
-        show: () => Promise<{
-          done?: boolean;
-          skipped?: boolean;
-          closed?: boolean;
-          status?: string;
-          error?: string;
-          [key: string]: unknown;
-        }>;
-      };
-    };
+    show_11862041?: () => void | Promise<unknown>;
   }
 }
 
@@ -71,7 +59,6 @@ const App = () => {
   const userFriendlyAddress = useTonAddress();
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
-  const adControllerRef = useRef<{ show: () => Promise<{ done?: boolean; skipped?: boolean; closed?: boolean; status?: string; error?: string; [key: string]: unknown }> } | null>(null);
 
   const miningRate = 0.0001;
   const normalizePoints = (val: number | string | null | undefined) => {
@@ -356,20 +343,6 @@ const App = () => {
     }
   };
 
-  const ensureAdsgramController = () => {
-    if (adControllerRef.current) {
-      return adControllerRef.current;
-    }
-
-    try {
-      adControllerRef.current = AdController.init({ blockId: '49284' });
-      return adControllerRef.current;
-    } catch (error) {
-      console.warn('[Adsgram] Controller failed to initialize:', error);
-      return null;
-    }
-  };
-
   const handleWatchAdTask = async () => {
     const currentUserId = telegramId ?? getTelegramContext().realUserId;
     if (!currentUserId) {
@@ -381,8 +354,8 @@ const App = () => {
       return;
     }
 
-    const controller = ensureAdsgramController();
-    if (!controller || typeof controller.show !== 'function') {
+    const monetagAd = window.show_11862041;
+    if (typeof monetagAd !== 'function') {
       setToastMessage('No ads available at the moment, please try again later');
       setTimeout(() => setToastMessage(null), 2200);
       return;
@@ -391,58 +364,44 @@ const App = () => {
     setIsAdLoading(true);
 
     try {
-      const result = await controller.show();
-      const finished = result?.done === true || result?.status === 'done' || result?.status === 'completed';
-      const wasSkipped = result?.done === false || result?.skipped === true || result?.closed === true || result?.status === 'skipped' || result?.status === 'closed';
+      await Promise.resolve(monetagAd());
 
-      if (finished) {
-        const nextCount = Math.min(adWatchCount + 1, 10);
-        const reward = 5;
-        const nextPoints = Number((points + reward).toFixed(4));
+      const nextCount = Math.min(adWatchCount + 1, 10);
+      const reward = 5;
+      const nextPoints = Number((points + reward).toFixed(4));
 
-        setAdWatchCount(nextCount);
-        setPoints(nextPoints);
+      setAdWatchCount(nextCount);
+      setPoints(nextPoints);
 
-        try {
-          const { error } = await supabase.rpc('watch_ad_reward', {
-            p_user_id: Number(currentUserId),
-          });
+      const { error } = await supabase.rpc('watch_ad_reward', {
+        p_user_id: Number(currentUserId),
+      });
 
-          if (error) {
-            console.warn('[Tasks] watch_ad_reward RPC failed, using fallback:', error);
-          }
-        } catch (error) {
-          console.warn('[Tasks] watch_ad_reward RPC threw, using fallback:', error);
-        }
+      if (error) {
+        console.warn('[Tasks] watch_ad_reward RPC failed:', error);
+        setToastMessage('Failed to credit reward. Please try again.');
+        setTimeout(() => setToastMessage(null), 2200);
+        return;
+      }
 
-        await persistUserTaskStatus('watch_ad', {
+      await persistUserTaskStatus('watch_ad', {
+        completed: nextCount >= 10,
+        claimed: nextCount >= 10,
+        progress: nextCount,
+      });
+
+      setTaskStatus((prev) => ({
+        ...prev,
+        watch_ad: {
+          opened: true,
           completed: nextCount >= 10,
           claimed: nextCount >= 10,
-          progress: nextCount,
-        });
+        },
+      }));
 
-        setTaskStatus((prev) => ({
-          ...prev,
-          watch_ad: {
-            opened: true,
-            completed: nextCount >= 10,
-            claimed: nextCount >= 10,
-          },
-        }));
-
-        setToastMessage(nextCount >= 10 ? 'Daily ad task complete!' : 'Ad reward added!');
-        setTimeout(() => setToastMessage(null), 2200);
-        await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
-        return;
-      }
-
-      if (wasSkipped) {
-        window.alert('You must watch the full ad to earn 5 AGEN.');
-        return;
-      }
-
-      setToastMessage('No ads available at the moment, please try again later');
+      setToastMessage(nextCount >= 10 ? 'Daily ad task complete!' : 'Ad reward added! +5 AGEN');
       setTimeout(() => setToastMessage(null), 2200);
+      await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
     } catch (error) {
       console.log('Ad error or closed early:', error);
       window.alert('You must watch the full ad to earn 5 AGEN.');
