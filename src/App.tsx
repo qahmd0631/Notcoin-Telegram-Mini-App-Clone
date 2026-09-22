@@ -7,6 +7,9 @@ const App = () => {
   const [points, setPoints] = useState(29857775);
   const [energy, setEnergy] = useState(2532);
   const [clicks, setClicks] = useState<{ id: number, x: number, y: number }[]>([]);
+  const [showFrens, setShowFrens] = useState(false);
+  const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
+  const [copied, setCopied] = useState(false);
   const pointsToAdd = 12;
   const energyToReduce = 12;
 
@@ -26,6 +29,35 @@ const App = () => {
   const handleAnimationEnd = (id: number) => {
     setClicks((prevClicks) => prevClicks.filter(click => click.id !== id));
   };
+
+  const handleInviteFriend = () => {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}`;
+    window.open(shareUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(referralLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      console.error('Unable to copy referral link:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const telegramUserId = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    const userId = telegramUserId ?? 'guest';
+    const nextLink = userId === 'guest'
+      ? 'https://t.me/Copmujbot/Gop'
+      : `https://t.me/Copmujbot/Gop?startapp=ref_${userId}`;
+
+    setReferralLink(nextLink);
+  }, []);
 
   // useEffect hook to restore energy over time
   useEffect(() => {
@@ -76,7 +108,7 @@ const App = () => {
             </div>
             <div className="flex-grow flex items-center max-w-60 text-sm">
               <div className="w-full bg-[#fad258] py-4 rounded-2xl flex justify-around">
-                <button className="flex flex-col items-center gap-1">
+                <button className="flex flex-col items-center gap-1" onClick={() => setShowFrens(true)}>
                   <img src={bear} width={24} height={24} alt="High Voltage" />
                   <span>Frens</span>
                 </button>
@@ -130,6 +162,42 @@ const App = () => {
             ))}
           </div>
         </div>
+
+        {showFrens && (
+          <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/50 p-4" onClick={() => setShowFrens(false)}>
+            <div className="w-full max-w-md rounded-[28px] bg-[#f7cc5a] p-5 text-[#171712] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Frens</h2>
+                <button className="text-xl font-bold" onClick={() => setShowFrens(false)} aria-label="Close friends panel">
+                  ×
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-[#fff5d5] p-4 text-center text-base font-semibold text-[#2f2b21]">
+                Get 10,000 AGEN points for each friend invited!
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-white/70 p-3 text-xs break-all text-[#2f2b21]">
+                {referralLink}
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  className="flex-1 rounded-full bg-[#1f2530] px-4 py-3 text-sm font-bold text-white"
+                  onClick={handleInviteFriend}
+                >
+                  Invite a Friend
+                </button>
+                <button
+                  className="flex-1 rounded-full bg-[#fff3be] px-4 py-3 text-sm font-bold text-[#1f2530]"
+                  onClick={handleCopyLink}
+                >
+                  {copied ? 'Copied!' : 'Copy Link'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
