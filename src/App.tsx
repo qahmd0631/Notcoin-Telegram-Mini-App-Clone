@@ -36,7 +36,7 @@ declare global {
 const App = () => {
   const [points, setPoints] = useState(0);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
-  const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?startapp=ref_12345678');
+  const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?start=ref_12345678');
   const [copied, setCopied] = useState(false);
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
@@ -62,16 +62,10 @@ const App = () => {
   const getReferrerId = () => {
     let referrerId = null;
     const initData = window.Telegram?.WebApp?.initDataUnsafe;
-    const startParam = initData?.start_param;
+    const startParam = initData?.start_param || new URLSearchParams(window.location.search).get('tgWebAppStartParam') || new URLSearchParams(window.location.search).get('start');
 
     if (startParam && startParam.startsWith('ref_')) {
       referrerId = startParam.replace('ref_', '');
-    } else {
-      const urlParams = new URLSearchParams(window.location.search);
-      const tgStartParam = urlParams.get('tgWebAppStartParam') || urlParams.get('startapp');
-      if (tgStartParam && tgStartParam.startsWith('ref_')) {
-        referrerId = tgStartParam.replace('ref_', '');
-      }
     }
 
     return referrerId;
@@ -177,6 +171,24 @@ const App = () => {
       rewardAmount: 10,
       nextReferrerBalance,
     });
+  };
+
+  const processReferralOnStartup = async (currentUserId: string, referrerId: string) => {
+    if (!currentUserId || !referrerId || referrerId === currentUserId) {
+      return;
+    }
+
+    const { data, error } = await supabase.rpc('process_referral', {
+      p_new_user_id: Number(currentUserId),
+      p_referrer_id: Number(referrerId),
+    });
+
+    if (error) {
+      console.error('[Referral] RPC process_referral failed:', error);
+      return;
+    }
+
+    console.log('[Referral] process_referral RPC:', data);
   };
   const holdingBalance = Number.isFinite(points * 0.75) ? Number((points * 0.75).toFixed(4)) : 0;
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
@@ -416,14 +428,14 @@ const App = () => {
 
     if (!realUserId) {
       setTelegramWarning('Please open this mini-app inside Telegram to save your balance.');
-      setReferralLink('https://t.me/AURA_AGENBOT?startapp=ref_12345678');
+      setReferralLink('https://t.me/AURA_AGENBOT?start=ref_12345678');
       setPoints(0);
       return;
     }
 
     setTelegramWarning(null);
 
-    const nextLink = `https://t.me/AURA_AGENBOT?startapp=ref_${realUserId}`;
+    const nextLink = `https://t.me/AURA_AGENBOT?start=ref_${realUserId}`;
     setReferralLink(nextLink);
 
     const loadUserPoints = async () => {
@@ -440,6 +452,7 @@ const App = () => {
 
       if (!data) {
         if (referrerId && referrerId !== realUserId) {
+          await processReferralOnStartup(realUserId, referrerId);
           await awardReferralBonus(referrerId, realUserId);
         }
 
