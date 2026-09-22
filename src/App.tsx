@@ -34,7 +34,7 @@ declare global {
   }
 }
 
-const GlowingGoldenTriangleLogo = ({ size = 170, className = '' }: { size?: number; className?: string }) => (
+const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; className?: string }) => (
   <svg
     width={size}
     height={size}
@@ -42,23 +42,35 @@ const GlowingGoldenTriangleLogo = ({ size = 170, className = '' }: { size?: numb
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
-    aria-label="Golden triangle logo"
+    aria-label="AURA GEN logo"
     role="img"
-    style={{ filter: 'drop-shadow(0 0 18px rgba(255, 214, 90, 0.9)) drop-shadow(0 0 26px rgba(255, 180, 40, 0.7))' }}
+    style={{ filter: 'drop-shadow(0 0 12px rgba(251, 201, 80, 0.9)) drop-shadow(0 0 24px rgba(255, 181, 63, 0.88))' }}
   >
-    <path d="M100 20 L170 150 C160 170 130 180 100 180 C70 180 40 170 30 150 Z" fill="url(#goldGradient1)" />
-    <path d="M100 20 L30 150 L100 110 L170 150 Z" fill="url(#goldGradient2)" opacity="0.92" />
     <defs>
-      <linearGradient id="goldGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#FFE259" />
-        <stop offset="100%" stopColor="#FFA751" />
+      <linearGradient id="hollowGoldStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#FFF2A8" />
+        <stop offset="28%" stopColor="#FFD95F" />
+        <stop offset="52%" stopColor="#D4AF37" />
+        <stop offset="76%" stopColor="#B8850B" />
+        <stop offset="100%" stopColor="#FFE59A" />
       </linearGradient>
-      <linearGradient id="goldGradient2" x1="100%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#FFD700" />
-        <stop offset="50%" stopColor="#B8860B" />
-        <stop offset="100%" stopColor="#D4AF37" />
-      </linearGradient>
+      <filter id="hollowGlow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="1.8" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
     </defs>
+
+    <g stroke="url(#hollowGoldStroke)" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" fill="none" filter="url(#hollowGlow)">
+      <path d="M100 20 L170 150 L30 150 Z" />
+      <path d="M100 20 L100 150" opacity="0.95" />
+      <path d="M30 150 L100 110 L170 150" opacity="0.95" />
+      <path d="M52 125 C70 102 84 88 100 68 C116 88 130 102 148 125" opacity="0.92" />
+      <path d="M70 90 L100 52 L130 90" opacity="0.9" />
+      <path d="M72 140 C84 126 92 117 100 106 C108 117 116 126 128 140" opacity="0.85" />
+    </g>
   </svg>
 );
 
@@ -842,7 +854,7 @@ const App = () => {
     {
       key: 'miners',
       label: 'Miners',
-      icon: <span className="text-lg font-black">⚡</span>,
+      icon: <HollowGoldBrandLogo size={18} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.7)]" />,
     },
     {
       key: 'friends',
@@ -882,8 +894,9 @@ const App = () => {
 
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between gap-2">
-          <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
-            Lvl 1 • IDLE
+          <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
+            <HollowGoldBrandLogo size={18} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.7)]" />
+            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl 1 • IDLE</span>
           </div>
           <div className="flex items-center gap-2">
             {walletAddress && (
@@ -932,7 +945,7 @@ const App = () => {
                 <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-              <GlowingGoldenTriangleLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
+              <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
           </div>
 
@@ -1232,7 +1245,7 @@ const App = () => {
       <div className="rounded-[24px] border border-[#f7d780]/20 bg-[#181b21]/80 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)]">
         <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Total AGEN Assets</p>
         <div className="mt-3 flex items-center gap-2">
-          <img src="/logo.png" alt="AURA GEN" className="h-8 w-8 object-contain" />
+          <HollowGoldBrandLogo size={28} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.8)]" />
           <span className="text-3xl font-black text-[#f9e6ad]">{points.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
