@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
 import './index.css';
 import { agenMark } from './images';
 import { supabase } from './supabase';
@@ -47,7 +48,10 @@ const App = () => {
   const [claimingRewards, setClaimingRewards] = useState(false);
   const [referralStats, setReferralStats] = useState({ totalReferrals: 0, unclaimedRewards: 0, pending: [] as ReferralRecord[] });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const userFriendlyAddress = useTonAddress();
   const miningLastUpdatedRef = useRef<number | null>(null);
+  const lastLinkedWalletRef = useRef<string | null>(null);
 
   const miningRate = 0.0001;
   const normalizePoints = (val: number | string | null | undefined) => {
@@ -256,6 +260,55 @@ const App = () => {
       setTelegramWarning('Balance save failed. Please try again.');
     }
   };
+
+  useEffect(() => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+
+    if (!currentUserId) {
+      if (lastLinkedWalletRef.current) {
+        lastLinkedWalletRef.current = null;
+        setWalletAddress(null);
+      }
+      return;
+    }
+
+    if (userFriendlyAddress) {
+      if (lastLinkedWalletRef.current !== userFriendlyAddress) {
+        lastLinkedWalletRef.current = userFriendlyAddress;
+        setWalletAddress(userFriendlyAddress);
+
+        supabase
+          .from('users')
+          .update({ wallet_address: userFriendlyAddress })
+          .eq('telegram_id', currentUserId)
+          .then(({ error }) => {
+            if (error) {
+              console.error('[TON Wallet] Failed to save linked wallet:', error);
+              return;
+            }
+
+            setToastMessage('TON wallet connected and linked to your account.');
+            setTimeout(() => setToastMessage(null), 2600);
+          });
+      }
+      return;
+    }
+
+    if (lastLinkedWalletRef.current) {
+      lastLinkedWalletRef.current = null;
+      setWalletAddress(null);
+
+      supabase
+        .from('users')
+        .update({ wallet_address: null })
+        .eq('telegram_id', currentUserId)
+        .then(({ error }) => {
+          if (error) {
+            console.error('[TON Wallet] Failed to clear wallet link:', error);
+          }
+        });
+    }
+  }, [telegramId, userFriendlyAddress]);
 
   const handleMiningAction = async () => {
     const pendingReward = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
@@ -559,13 +612,18 @@ const App = () => {
       )}
 
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
             Lvl 1 • IDLE
           </div>
-          <button className="rounded-full bg-[linear-gradient(135deg,#00a8ff,#58d7ff)] px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#06131d] shadow-[0_0_24px_rgba(0,168,255,0.45)]">
-            Connect Wallet
-          </button>
+          <div className="flex items-center gap-2">
+            {walletAddress && (
+              <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
+                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+              </span>
+            )}
+            <TonConnectButton />
+          </div>
         </div>
       </div>
 
@@ -721,6 +779,12 @@ const App = () => {
         </div>
         <div className="mt-4 rounded-2xl bg-[#13161b] p-3 text-sm text-white/80">
           <span className="text-white/50">Telegram ID:</span> {telegramId ?? 'N/A'}
+        </div>
+        <div className="mt-4 rounded-2xl bg-[#13161b] p-3 text-sm text-white/80">
+          <span className="text-white/50">TON Wallet:</span> {walletAddress ?? 'Not connected'}
+        </div>
+        <div className="mt-4 flex justify-center">
+          <TonConnectButton />
         </div>
       </div>
 
