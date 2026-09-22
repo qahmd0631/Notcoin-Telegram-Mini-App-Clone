@@ -14,6 +14,7 @@ declare global {
     Telegram?: {
       WebApp?: {
         ready?: () => void;
+        expand?: () => void;
         initDataUnsafe?: {
           user?: TelegramUser;
         };
@@ -24,12 +25,12 @@ declare global {
 
 const App = () => {
   const [points, setPoints] = useState(0);
-  const [isBalanceLoaded, setIsBalanceLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
+  const [telegramId, setTelegramId] = useState<number | null>(null);
   const [isMining, setIsMining] = useState(false);
   const [isClaimReady, setIsClaimReady] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -46,17 +47,18 @@ const App = () => {
   const safeSessionSeconds = Number.isFinite(sessionSeconds) ? sessionSeconds : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? minedThisSession : 0;
 
-  const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
+  const persistUserBalance = async (nextPoints: number, source: string, userId: number | null = null) => {
     if (typeof window === 'undefined') {
       return;
     }
 
-    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const realTelegramId = userId || (tgUser?.id ? String(tgUser.id) : null);
-    const username = tgUser?.username || tgUser?.first_name || 'Anonymous User';
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+    const rawId = tgUser?.id ?? userId ?? 12345678;
+    const realTelegramId = Number.isFinite(Number(rawId)) ? Number(rawId) : 12345678;
+    const username = tgUser?.username || tgUser?.first_name || 'Telegram User';
     const normalizedPoints = Number(Number(nextPoints).toFixed(4));
 
-    if (!realTelegramId) {
+    if (!Number.isFinite(realTelegramId)) {
       const warning = 'Please open this mini-app inside Telegram to save your balance.';
       setTelegramWarning(warning);
       console.warn('[Supabase]', source, 'missing real Telegram ID; skipping save');
@@ -110,25 +112,14 @@ const App = () => {
     }
 
     if (isClaimReady) {
+      const currentBalance = Number.isFinite(points) ? points : 0;
       const claimValue = Number(minedThisSession.toFixed(4));
-      const updatedTotalPoints = Number((points + claimValue).toFixed(4));
-      const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-      const userId = tgUser?.id ? String(tgUser.id) : null;
+      const newBalance = Number((currentBalance + claimValue).toFixed(4));
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+      const rawId = tgUser?.id ?? telegramId ?? 12345678;
+      const activeTelegramId = Number.isFinite(Number(rawId)) ? Number(rawId) : 12345678;
 
-      if (userId) {
-        const { data, error } = await supabase
-          .from('users')
-          .update({ points: updatedTotalPoints })
-          .eq('telegram_id', userId);
-
-        console.log('[Supabase] CLAIM save', { userId, updatedTotalPoints, data, error });
-
-        if (error) {
-          console.error('Save failed:', error);
-          window.alert(`Save failed: ${error.message || 'Unknown error'}`);
-          return;
-        }
-      } else {
+      if (!Number.isFinite(activeTelegramId)) {
         const warning = 'Please open this mini-app inside Telegram to save your balance.';
         setTelegramWarning(warning);
         console.warn('[Supabase] CLAIM save skipped: missing Telegram user id');
@@ -136,7 +127,20 @@ const App = () => {
         return;
       }
 
-      setPoints(updatedTotalPoints);
+      const { data, error } = await supabase
+        .from('users')
+        .update({ points: newBalance })
+        .eq('telegram_id', activeTelegramId);
+
+      console.log('[Supabase] CLAIM save', { activeTelegramId, currentBalance, claimValue, newBalance, data, error });
+
+      if (error) {
+        console.error('Save failed:', error);
+        window.alert(`Save failed: ${error.message || 'Unknown error'}`);
+        return;
+      }
+
+      setPoints(newBalance);
       setMinedThisSession(0);
       setSessionSeconds(0);
       setIsClaimReady(false);
@@ -156,12 +160,13 @@ const App = () => {
 
     const adReward = 0.05;
     const nextPoints = Number((points + adReward).toFixed(4));
-    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const userId = tgUser?.id ? String(tgUser.id) : null;
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+    const rawId = tgUser?.id ?? telegramId ?? 12345678;
+    const numericTelegramId = Number.isFinite(Number(rawId)) ? Number(rawId) : 12345678;
 
     setPoints(nextPoints);
     setBonusMinutes(normalizedBonus + 5);
-    await persistUserBalance(nextPoints, 'ad_bonus', userId);
+    await persistUserBalance(nextPoints, 'ad_bonus', numericTelegramId);
   };
 
   const handleInviteFriend = () => {
@@ -188,32 +193,38 @@ const App = () => {
       window.Telegram.WebApp.ready();
     }
 
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    const userId = tgUser?.id ? String(tgUser.id) : null;
-    const username = tgUser?.username || tgUser?.first_name || 'User';
-    setTelegramUser(tgUser ?? null);
+    if (window.Telegram?.WebApp?.expand) {
+      window.Telegram.WebApp.expand();
+    }
 
-    if (!userId) {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+    const rawId = tgUser?.id ?? 12345678;
+    const safeTelegramId = Number.isFinite(Number(rawId)) ? Number(rawId) : 12345678;
+    const username = tgUser?.username || tgUser?.first_name || 'Telegram User';
+    setTelegramUser(tgUser ?? null);
+    setTelegramId(safeTelegramId);
+
+    if (!tgUser?.id) {
       setTelegramWarning('Please open this mini-app inside Telegram to save your balance.');
-      setIsBalanceLoaded(true);
+      setReferralLink('https://t.me/Copmujbot/Gop?startapp=ref_12345678');
+      setPoints(0);
       return;
     }
 
     setTelegramWarning(null);
 
-    const nextLink = `https://t.me/Copmujbot/Gop?startapp=ref_${userId}`;
+    const nextLink = `https://t.me/Copmujbot/Gop?startapp=ref_${safeTelegramId}`;
     setReferralLink(nextLink);
 
     const loadUserPoints = async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('points, telegram_id, username')
-        .eq('telegram_id', userId)
+        .select('*')
+        .eq('telegram_id', safeTelegramId)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
         console.error('Error fetching user points:', error);
-        setIsBalanceLoaded(true);
         return;
       }
 
@@ -222,7 +233,7 @@ const App = () => {
           .from('users')
           .insert([
             {
-              telegram_id: userId,
+              telegram_id: safeTelegramId,
               username,
               points: 0,
             },
@@ -230,50 +241,21 @@ const App = () => {
 
         if (insertError) {
           console.error('Error inserting new user:', insertError);
-          setIsBalanceLoaded(true);
           return;
         }
 
-        console.log('[Supabase] New user created with zero balance', { userId, username });
+        console.log('[Supabase] New user created with zero balance', { safeTelegramId, username });
         setPoints(0);
-        setIsBalanceLoaded(true);
         return;
       }
 
       const savedPoints = Number(data.points ?? 0);
-      console.log('[Supabase] Loaded saved user balance', { userId, username, savedPoints });
+      console.log('[Supabase] Loaded saved user balance', { safeTelegramId, username, savedPoints });
       setPoints(savedPoints);
-      setIsBalanceLoaded(true);
     };
 
     loadUserPoints();
   }, []);
-
-  useEffect(() => {
-    if (!telegramUser?.id || !isBalanceLoaded) {
-      return;
-    }
-
-    const syncPoints = async () => {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          username: telegramUser.username || telegramUser.first_name || 'Anonymous User',
-          points,
-        })
-        .eq('telegram_id', telegramUser.id);
-
-      if (error) {
-        console.error('Error syncing user points:', error);
-      } else {
-        console.log('[Supabase] Synced live balance', { telegramId: telegramUser.id, points });
-      }
-    };
-
-    const debounceTimer = window.setTimeout(syncPoints, 200);
-
-    return () => window.clearTimeout(debounceTimer);
-  }, [points, telegramUser?.id, telegramUser?.username, isBalanceLoaded]);
 
   useEffect(() => {
     if (!isMining) {
@@ -488,7 +470,7 @@ const App = () => {
           <div className="rounded-full bg-[#f4c75b]/15 px-3 py-2 text-xs font-bold text-[#f7d780]">Online</div>
         </div>
         <div className="mt-4 rounded-2xl bg-[#13161b] p-3 text-sm text-white/80">
-          <span className="text-white/50">Telegram ID:</span> {telegramUser?.id ? String(telegramUser.id) : 'N/A'}
+          <span className="text-white/50">Telegram ID:</span> {telegramId !== null ? String(telegramId) : 'N/A'}
         </div>
       </div>
 
