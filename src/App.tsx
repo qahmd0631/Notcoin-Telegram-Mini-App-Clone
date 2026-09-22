@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
 import './index.css';
-import { agenMark } from './images';
+import { agenMark, mobiusLogo } from './images';
 import { supabase } from './supabase';
 
 type TelegramUser = {
@@ -37,7 +37,7 @@ declare global {
 
 const App = () => {
   const [points, setPoints] = useState(0);
-  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'miners' | 'friends' | 'profile'>('home');
   const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?start=ref_12345678');
   const [copied, setCopied] = useState(false);
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
@@ -47,6 +47,8 @@ const App = () => {
   const [minedThisSession, setMinedThisSession] = useState(0);
   const [bonusMinutes, setBonusMinutes] = useState(0);
   const [claimingRewards, setClaimingRewards] = useState(false);
+  const [currentLevel, setCurrentLevel] = useState(1);
+  const [speedBoostSecondsLeft, setSpeedBoostSecondsLeft] = useState(0);
   const [referralStats, setReferralStats] = useState({ totalReferrals: 0, unclaimedRewards: 0, pending: [] as ReferralRecord[] });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -61,6 +63,24 @@ const App = () => {
   const lastLinkedWalletRef = useRef<string | null>(null);
 
   const miningRate = 0.0001;
+  const effectiveMiningRate = Number((miningRate * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
+  const minerLevels = [
+    { level: 1, speed: '0.20 TH/s', price: 0, unlock: 0 },
+    { level: 2, speed: '0.35 TH/s', price: 25, unlock: 25 },
+    { level: 3, speed: '0.50 TH/s', price: 60, unlock: 60 },
+    { level: 4, speed: '0.75 TH/s', price: 110, unlock: 110 },
+    { level: 5, speed: '1.10 TH/s', price: 180, unlock: 180 },
+    { level: 6, speed: '1.60 TH/s', price: 260, unlock: 260 },
+    { level: 7, speed: '2.20 TH/s', price: 360, unlock: 360 },
+    { level: 8, speed: '3.00 TH/s', price: 500, unlock: 500 },
+    { level: 9, speed: '4.00 TH/s', price: 700, unlock: 700 },
+    { level: 10, speed: '5.00 TH/s', price: 900, unlock: 900 },
+    { level: 15, speed: '8.50 TH/s', price: 2300, unlock: 2300 },
+    { level: 20, speed: '14.00 TH/s', price: 4200, unlock: 4200 },
+    { level: 25, speed: '21.00 TH/s', price: 6600, unlock: 6600 },
+    { level: 30, speed: '31.00 TH/s', price: 9800, unlock: 9800 },
+    { level: 36, speed: '44.00 TH/s', price: 15000, unlock: 15000 },
+  ];
   const normalizePoints = (val: number | string | null | undefined) => {
     const parsed = Number.parseFloat(String(val ?? 0));
     return Number.isFinite(parsed) ? Number(parsed.toFixed(4)) : 0;
@@ -510,6 +530,26 @@ const App = () => {
     }
   };
 
+  const handleSpeedBoost = () => {
+    if (speedBoostSecondsLeft > 0) {
+      setToastMessage('Speed boost already active.');
+      window.setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    if (typeof window !== 'undefined' && typeof window.show_11862041 === 'function') {
+      try {
+        window.show_11862041();
+      } catch (error) {
+        console.warn('[Monetag] Rewarded ad trigger failed:', error);
+      }
+    }
+
+    setSpeedBoostSecondsLeft(60);
+    setToastMessage('2x speed boost activated for 60 seconds.');
+    window.setTimeout(() => setToastMessage(null), 2200);
+  };
+
   const handleWatchAd = async () => {
     const normalizedBonus = Number.isFinite(bonusMinutes) ? bonusMinutes : 0;
 
@@ -528,6 +568,30 @@ const App = () => {
     setPoints(nextPoints);
     setBonusMinutes(normalizedBonus + 5);
     await persistUserBalance(nextPoints, 'ad_bonus', userId);
+  };
+
+  const handleMinerUpgrade = async (level: number) => {
+    const target = Number(level);
+    if (target <= currentLevel) {
+      setCurrentLevel(target);
+      return;
+    }
+
+    const required = minerLevels.find((entry) => entry.level === target)?.price ?? 0;
+    if (required > points) {
+      setToastMessage(`Need ${required} tokens to unlock Level ${target}.`);
+      window.setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    const nextPoints = Number((points - required).toFixed(4));
+    setPoints(nextPoints);
+    setCurrentLevel(target);
+    setToastMessage(`Level ${target} activated.`);
+    window.setTimeout(() => setToastMessage(null), 2200);
+
+    const userId = telegramId ?? getTelegramContext().realUserId;
+    await persistUserBalance(nextPoints, 'miner_upgrade', userId);
   };
 
   const handleInviteFriend = () => {
@@ -688,6 +752,23 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (speedBoostSecondsLeft <= 0) {
+      return;
+    }
+
+    const boostTimer = window.setInterval(() => {
+      setSpeedBoostSecondsLeft((prev) => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(boostTimer);
+  }, [speedBoostSecondsLeft]);
+
+  useEffect(() => {
     if (!isMining) {
       return;
     }
@@ -702,7 +783,7 @@ const App = () => {
       const elapsedSeconds = Math.max((now - lastUpdated) / 1000, 0);
 
       if (elapsedSeconds > 0) {
-        const earnedFromElapsedTime = Number((elapsedSeconds * miningRate).toFixed(4));
+        const earnedFromElapsedTime = Number((elapsedSeconds * effectiveMiningRate).toFixed(4));
         setMinedThisSession((prevValue) => Number((prevValue + earnedFromElapsedTime).toFixed(4)));
       }
 
@@ -710,9 +791,9 @@ const App = () => {
     }, 1000);
 
     return () => window.clearInterval(miningInterval);
-  }, [isMining]);
+  }, [effectiveMiningRate, isMining]);
 
-  const navItems: Array<{ key: 'home' | 'tasks' | 'friends' | 'profile'; label: string; icon: JSX.Element }> = [
+  const navItems: Array<{ key: 'home' | 'tasks' | 'miners' | 'friends' | 'profile'; label: string; icon: JSX.Element }> = [
     {
       key: 'home',
       label: 'Home',
@@ -730,6 +811,11 @@ const App = () => {
           <path d="M7 3.5A2.5 2.5 0 0 0 4.5 6v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V6A2.5 2.5 0 0 0 17 3.5zm0 2h10a.5.5 0 0 1 .5.5v12a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V6a.5.5 0 0 1 .5-.5zm2 2.5h6v2H9zm0 4h6v2H9zm0 4h4v2H9z" />
         </svg>
       ),
+    },
+    {
+      key: 'miners',
+      label: 'Miners',
+      icon: <span className="text-lg font-black">⚡</span>,
     },
     {
       key: 'friends',
@@ -810,7 +896,7 @@ const App = () => {
           <div className="mt-8 flex items-center justify-center">
             <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-              <img src={agenMark} width={170} height={170} alt="AGEN golden Penrose triangle" className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
+              <img src={mobiusLogo} width={170} height={170} alt="Golden Mobius triangle brand mark" className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
           </div>
 
@@ -827,8 +913,117 @@ const App = () => {
             >
               Watch Ad (+5 Mins)
             </button>
+            <button
+              className="w-full rounded-[18px] border border-[#5ee7a9]/30 bg-[#0f1d1a] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#9ff7c3] shadow-[0_0_18px_rgba(61,214,141,0.12)]"
+              onClick={handleSpeedBoost}
+            >
+              {speedBoostSecondsLeft > 0 ? `2x Speed Boost • ${speedBoostSecondsLeft}s` : '2x Speed Boost (1 Min)'}
+            </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+
+  const renderMinersView = () => (
+    <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Miners</p>
+          <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
+        </div>
+        <button
+          className="rounded-full border border-[#f7d780]/30 bg-[#f4c75b]/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#f9e6ad]"
+          onClick={handleSpeedBoost}
+        >
+          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x Boost'}
+        </button>
+      </div>
+
+      <div className="rounded-[30px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Current Level</p>
+            <h2 className="mt-2 text-3xl font-black text-[#fff3c4]">Lv. {currentLevel}</h2>
+          </div>
+          <div className="rounded-full border border-[#8ef0b0]/35 bg-[#0d1c17]/80 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-[#a8ffd0]">
+            {currentLevel >= 8 ? 'Peak' : 'Mining'}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-2xl bg-[#11161b] p-3">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Today&apos;s P&amp;L</div>
+            <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max(currentLevel * 0.8, 2.4)).toFixed(1)}</div>
+          </div>
+          <div className="rounded-2xl bg-[#11161b] p-3">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
+            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{(effectiveMiningRate * 10000).toFixed(2)} TH/s</div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl bg-[#101419] p-3">
+          <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-[#d7bf73]">
+            <span>Performance</span>
+            <span>{Math.min((currentLevel / 36) * 100, 100).toFixed(0)}%</span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#1f252d]">
+            <div className="h-full rounded-full bg-[linear-gradient(90deg,#f7d57a,#d4af37_35%,#f3d784_100%)]" style={{ width: `${Math.min((currentLevel / 36) * 100, 100)}%` }} />
+          </div>
+        </div>
+
+        {speedBoostSecondsLeft > 0 && (
+          <div className="mt-4 rounded-2xl border border-[#5ee7a9]/30 bg-[#0f1d1a]/80 px-3 py-2 text-xs font-bold text-[#9ff7c3]">
+            2x Speed Boost active: {speedBoostSecondsLeft}s remaining
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        {minerLevels.map((entry) => {
+          const isUnlocked = currentLevel >= entry.level;
+          const isAffordable = points >= entry.price;
+          const statusText = isUnlocked
+            ? 'ACTIVE'
+            : isAffordable
+              ? 'NEED ' + entry.price + ' tokens to unlock'
+              : 'LOCKED';
+
+          return (
+            <div key={entry.level} className={`rounded-[26px] border p-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${isUnlocked ? 'border-[#f7d780]/40 bg-[#1b1c1f]' : 'border-[#f7d780]/15 bg-[#14181d]'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Lvl</p>
+                  <h3 className="mt-1 text-xl font-black text-white">{entry.level}</h3>
+                </div>
+                <span className="rounded-full bg-[#f4c75b]/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
+                  {entry.speed}
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-2 text-xs text-white/75">
+                <div className="flex items-center justify-between">
+                  <span>Price</span>
+                  <span className="font-bold text-[#f9e6ad]">{entry.price} tokens</span>
+                </div>
+              </div>
+
+              <button
+                className={`mt-4 w-full rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
+                  isUnlocked
+                    ? 'bg-[#1b3a2d] text-[#9ff7c3]'
+                    : isAffordable
+                      ? 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
+                      : 'bg-[#1d2128] text-[#d8dbe0]'
+                }`}
+                onClick={() => void handleMinerUpgrade(entry.level)}
+                disabled={!isAffordable && !isUnlocked}
+              >
+                {statusText}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1035,10 +1230,13 @@ const App = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <button className="rounded-[24px] border border-[#f7d780]/20 bg-[#1d2128] p-4 text-left shadow-[0_16px_30px_rgba(0,0,0,0.15)]">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Controls</p>
-          <h3 className="mt-3 text-lg font-bold text-white">Withdraw</h3>
-          <p className="mt-2 text-xs text-white/60">Move rewards</p>
+        <button disabled className="rounded-[24px] border border-[#f7d780]/20 bg-[#1d2128]/80 p-4 text-left shadow-[0_16px_30px_rgba(0,0,0,0.15)] opacity-75">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Controls</p>
+            <span className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#f8d77a]">Lock</span>
+          </div>
+          <h3 className="mt-3 flex items-center gap-2 text-lg font-bold text-white"><span aria-hidden="true">🔒</span> Withdraw</h3>
+          <p className="mt-2 text-xs text-white/60">Coming Soon</p>
         </button>
         <button className="rounded-[24px] border border-[#f7d780]/20 bg-[#1d2128] p-4 text-left shadow-[0_16px_30px_rgba(0,0,0,0.15)]">
           <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Controls</p>
@@ -1056,12 +1254,13 @@ const App = () => {
       <div className="relative z-10 w-full">
         {activeTab === 'home' && renderHomeView()}
         {activeTab === 'tasks' && renderTasksView()}
+        {activeTab === 'miners' && renderMinersView()}
         {activeTab === 'friends' && renderFriendsView()}
         {activeTab === 'profile' && renderProfileView()}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-[1000] border-t border-[#e5c158]/15 bg-[#101317]/95 px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md">
-        <div className="grid grid-cols-4 gap-1 text-center text-[10px] font-medium">
+        <div className="grid grid-cols-5 gap-1 text-center text-[10px] font-medium">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
 
@@ -1070,7 +1269,7 @@ const App = () => {
                 key={item.key}
                 className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 transition-all ${
                   isActive ? 'bg-[#f5d57c]/10 text-[#f7d780] shadow-[0_0_16px_rgba(229,193,88,0.12)]' : 'text-white/70'
-                }`}
+                } ${item.key === 'miners' ? 'mx-1' : ''}`}
                 onClick={() => setActiveTab(item.key)}
               >
                 {item.icon}
