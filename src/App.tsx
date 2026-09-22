@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
+import { AdController } from '@adsgram/ai';
 import './index.css';
 import { agenMark } from './images';
 import { supabase } from './supabase';
@@ -360,46 +361,14 @@ const App = () => {
       return adControllerRef.current;
     }
 
-    if (!window.Adsgram || typeof window.Adsgram.init !== 'function') {
+    try {
+      adControllerRef.current = AdController.init({ blockId: '49284' });
+      return adControllerRef.current;
+    } catch (error) {
+      console.warn('[Adsgram] Controller failed to initialize:', error);
       return null;
     }
-
-    adControllerRef.current = window.Adsgram.init({ blockId: '49284' });
-    return adControllerRef.current;
   };
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    if (window.Adsgram?.init) {
-      adControllerRef.current = window.Adsgram.init({ blockId: '49284' });
-      return;
-    }
-
-    const scriptUrl = 'https://adsgram.ai/js/adsgram-ad-sdk.js';
-    const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${scriptUrl}"]`);
-
-    if (existingScript) {
-      existingScript.addEventListener('load', () => {
-        adControllerRef.current = window.Adsgram?.init({ blockId: '49284' }) ?? null;
-      }, { once: true });
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = scriptUrl;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      adControllerRef.current = window.Adsgram?.init({ blockId: '49284' }) ?? null;
-    };
-    script.onerror = () => {
-      console.warn('[Adsgram] Failed to load SDK script');
-    };
-    document.head.appendChild(script);
-  }, []);
 
   const handleWatchAdTask = async () => {
     const currentUserId = telegramId ?? getTelegramContext().realUserId;
@@ -475,7 +444,8 @@ const App = () => {
       setToastMessage('No ads available at the moment, please try again later');
       setTimeout(() => setToastMessage(null), 2200);
     } catch (error) {
-      console.error('[Adsgram] Ad show failed:', error);
+      console.log('Ad error or closed early:', error);
+      window.alert('You must watch the full ad to earn 5 AGEN.');
       setToastMessage('No ads available at the moment, please try again later');
       setTimeout(() => setToastMessage(null), 2200);
     } finally {
