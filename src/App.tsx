@@ -46,6 +46,7 @@ const App = () => {
   const [bonusMinutes, setBonusMinutes] = useState(0);
   const [claimingRewards, setClaimingRewards] = useState(false);
   const [referralStats, setReferralStats] = useState({ totalReferrals: 0, unclaimedRewards: 0, pending: [] as ReferralRecord[] });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const miningLastUpdatedRef = useRef<number | null>(null);
 
   const miningRate = 0.0001;
@@ -80,7 +81,8 @@ const App = () => {
     const { data, error } = await supabase
       .from('referrals')
       .select('*')
-      .eq('referrer_id', userId);
+      .eq('referrer_id', userId)
+      .or('claimed.is.false,claimed.is.null');
 
     if (error) {
       console.warn('[Referral] Failed to load referral stats:', error);
@@ -92,10 +94,16 @@ const App = () => {
       const claimed = row.claimed ?? row.reward_claimed ?? false;
       return !claimed;
     });
+    const totalReferralsQuery = await supabase
+      .from('referrals')
+      .select('id')
+      .eq('referrer_id', userId);
+
+    const allRows = Array.isArray(totalReferralsQuery.data) ? totalReferralsQuery.data as Array<{ id?: string }> : [];
     const unclaimedRewards = pending.reduce((sum, row) => sum + normalizePoints(row.reward_amount ?? 10), 0);
 
     setReferralStats({
-      totalReferrals: rows.length,
+      totalReferrals: allRows.length,
       unclaimedRewards: Number(unclaimedRewards.toFixed(4)),
       pending,
     });
@@ -335,72 +343,44 @@ const App = () => {
       return;
     }
 
-    setClaimingRewards(true);
+    if (claimingRewards || referralStats.unclaimedRewards <= 0) {
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from('referrals')
-      .select('*')
-      .eq('referrer_id', currentUserId);
+    setClaimingRewards(true);
+    setTelegramWarning(null);
+
+    const { data, error } = await supabase.rpc('claim_referral_rewards', {
+      p_user_id: Number(currentUserId),
+    });
 
     if (error) {
-      console.error('[Referral] Claim lookup failed:', error);
-      setClaimingRewards(false);
-      return;
-    }
-
-    const pendingRows = Array.isArray(data) ? (data as ReferralRecord[]).filter((row) => !(row.claimed ?? row.reward_claimed ?? false)) : [];
-    const rewardTotal = pendingRows.reduce((sum, row) => sum + normalizePoints(row.reward_amount ?? 10), 0);
-
-    if (!pendingRows.length || rewardTotal <= 0) {
-      setClaimingRewards(false);
-      await syncReferralStats(currentUserId);
-      return;
-    }
-
-    const { data: userRow, error: userError } = await supabase
-      .from('users')
-      .select('points')
-      .eq('telegram_id', currentUserId)
-      .maybeSingle();
-
-    if (userError && userError.code !== 'PGRST116') {
-      console.error('[Referral] Failed to load reward user:', userError);
-      setClaimingRewards(false);
-      return;
-    }
-
-    const currentBalance = normalizePoints(userRow?.points ?? points);
-    const nextBalance = Number((currentBalance + rewardTotal).toFixed(4));
-
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ points: nextBalance })
-      .eq('telegram_id', currentUserId);
-
-    if (updateError) {
-      console.error('[Referral] Reward claim update failed:', updateError);
+      console.error('[Referral] claim_referral_rewards RPC failed:', error);
       setTelegramWarning('Referral reward claim failed. Please try again.');
       setClaimingRewards(false);
       return;
     }
 
-    for (const row of pendingRows) {
-      if (!row.id) {
-        continue;
+    const claimedAmount = Number(data ?? 0);
+
+    if (claimedAmount > 0) {
+      setReferralStats((prev) => ({ ...prev, unclaimedRewards: 0, pending: [] }));
+      const { data: userRow, error: userError } = await supabase
+        .from('users')
+        .select('points')
+        .eq('telegram_id', currentUserId)
+        .maybeSingle();
+
+      if (userError && userError.code !== 'PGRST116') {
+        console.error('[Referral] Failed to reload points after claim:', userError);
       }
 
-      const { error: markError } = await supabase
-        .from('referrals')
-        .update({ claimed: true, reward_claimed: true })
-        .eq('id', row.id);
-
-      if (markError) {
-        console.warn('[Referral] Could not mark referral as claimed:', markError);
-      }
+      const refreshedPoints = Number(userRow?.points ?? points);
+      setPoints(Number(refreshedPoints.toFixed(4)));
+      setToastMessage('Rewards claimed successfully!');
+      setTimeout(() => setToastMessage(null), 2200);
     }
 
-    setPoints(nextBalance);
-    setTelegramWarning(null);
     await syncReferralStats(currentUserId);
     setClaimingRewards(false);
   };
@@ -572,6 +552,12 @@ const App = () => {
         </div>
       )}
 
+      {toastMessage && (
+        <div className="fixed inset-x-3 top-16 z-20 rounded-2xl border border-[#8ef0b0]/40 bg-[#11251a]/95 px-4 py-3 text-center text-xs font-bold text-[#9ff7c3] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+          {toastMessage}
+        </div>
+      )}
+
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between">
           <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
@@ -701,7 +687,7 @@ const App = () => {
           </div>
           <div className="rounded-2xl bg-[#1d2128] p-3 text-center">
             <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Unclaimed Rewards</p>
-            <div className="mt-2 text-2xl font-black text-[#f9e6ad]">{(referralStats.totalReferrals * 10).toLocaleString()} AGEN</div>
+            <div className="mt-2 text-2xl font-black text-[#f9e6ad]">{referralStats.unclaimedRewards.toLocaleString()} AGEN</div>
           </div>
         </div>
 
