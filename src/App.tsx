@@ -117,8 +117,10 @@ const App = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [adWatchCount, setAdWatchCount] = useState(0);
+  const [adCount, setAdCount] = useState(0);
   const [isAdLocked, setIsAdLocked] = useState(false);
   const [isAdLoading, setIsAdLoading] = useState(false);
+  const [miningRate, setMiningRate] = useState(0.0001);
   const [taskStatus, setTaskStatus] = useState<Record<string, { opened: boolean; completed: boolean; claimed: boolean }>>({
     watch_ad: { opened: false, completed: false, claimed: false },
     join_channel_1: { opened: false, completed: false, claimed: false },
@@ -333,8 +335,7 @@ const App = () => {
     });
   };
 
-  const miningRate = 0.0001;
-  const effectiveMiningRate = Number((miningRate * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
+  const effectiveMiningRate = Number((Math.max(0.0001, miningRate) * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
   const minerLevels = [
     { level: 1, speed: '0.20 TH/s', price: 0, unlock: 0 },
     { level: 2, speed: '0.35 TH/s', price: 25, unlock: 25 },
@@ -1029,6 +1030,43 @@ const App = () => {
     setClaimingRewards(false);
   };
 
+  const loadMasterUserAppState = async (userId: string | null) => {
+    if (!userId) {
+      setAdCount(0);
+      setAdWatchCount(0);
+      setIsAdLocked(false);
+      setMiningRate(0.0001);
+      return false;
+    }
+
+    const { data, error } = await supabase.rpc('get_user_app_state', {
+      p_user_id: String(userId),
+    });
+
+    if (!data || error) {
+      console.warn('[Master State] Failed to load app state:', error ?? 'no data');
+      return false;
+    }
+
+    const nextAdCount = Number(data.ad_count ?? data.daily_count ?? 0);
+    const nextLocked = Boolean(data.is_ad_locked ?? nextAdCount >= 10);
+    const nextBalance = Number(data.balance ?? data.points ?? 0);
+    const nextMiningRate = Number(data.mining_rate ?? 0.0001);
+    const nextPendingRewards = Number(data.pending_rewards ?? 0);
+
+    setAdCount(nextAdCount);
+    setAdWatchCount(nextAdCount);
+    setIsAdLocked(nextLocked);
+    setPoints(nextBalance);
+    setMiningRate(nextMiningRate);
+    setMinedThisSession(nextPendingRewards);
+    return true;
+  };
+
+  useEffect(() => {
+    setAdCount(adWatchCount);
+  }, [adWatchCount]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1116,14 +1154,30 @@ const App = () => {
         }
       }
 
-      await fetchInitialAdCount(realUserId);
-      await syncMiningState(realUserId);
+      const masterStateLoaded = await loadMasterUserAppState(realUserId);
+      if (!masterStateLoaded) {
+        await fetchInitialAdCount(realUserId);
+        await syncMiningState(realUserId);
+      }
       await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
     };
 
     loadUserPoints();
   }, []);
+
+  useEffect(() => {
+    if (!isMining) {
+      return;
+    }
+
+    const rewardTimer = window.setInterval(() => {
+      const increment = Number((miningRate * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
+    setMinedThisSession((prev) => Number((prev + increment).toFixed(4)));
+    }, 1000);
+
+    return () => window.clearInterval(rewardTimer);
+  }, [isMining, miningRate, speedBoostSecondsLeft]);
 
   useEffect(() => {
     if (speedBoostSecondsLeft <= 0) {
@@ -1273,12 +1327,12 @@ const App = () => {
               <button
                 type="button"
                 aria-label="Activate 2x mining speed boost"
-                className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
+                className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adCount >= 10 || isAdLocked ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
                 onClick={() => void handleSpeedBoost()}
-                disabled={isAdLocked || adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
+                disabled={adCount >= 10 || isAdLocked || speedBoostSecondsLeft > 0 || isAdLoading}
               >
                 <span className="text-[11px] font-black">⚡</span>
-                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : isAdLocked || adWatchCount >= 10 ? 'LOCK' : '2x'}</span>
+                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adCount >= 10 || isAdLocked ? 'LOCK' : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
               <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
@@ -1292,12 +1346,20 @@ const App = () => {
             >
               {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
             </button>
-            <button
-              className="w-full rounded-[18px] border border-[#e5c158]/25 bg-[#171a1d] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#f8d77a] shadow-[0_0_18px_rgba(229,193,88,0.06)]"
-              onClick={handleWatchAd}
-            >
-              Watch Ad (+5 Mins)
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                className={`w-full rounded-[18px] border px-4 py-3 text-sm font-black uppercase tracking-[0.16em] shadow-[0_0_18px_rgba(229,193,88,0.06)] ${adCount >= 10 || isAdLocked ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#e5c158]/25 bg-[#171a1d] text-[#f8d77a]'}`}
+                onClick={handleWatchAd}
+                disabled={adCount >= 10 || isAdLocked}
+              >
+                {isAdLocked ? 'Limit Reached (10/10) - Resets Tomorrow' : 'Watch Ad (+5 Mins)'}
+              </button>
+              {isAdLocked && (
+                <div className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2.5 py-1.5 text-center text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
+                  Limit Reached (10/10) - Resets Tomorrow
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1312,11 +1374,11 @@ const App = () => {
           <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
         </div>
         <button
-          className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
+          className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adCount >= 10 || isAdLocked ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
           onClick={() => void handleSpeedBoost()}
-          disabled={isAdLocked || adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
+          disabled={adCount >= 10 || isAdLocked || speedBoostSecondsLeft > 0 || isAdLoading}
         >
-          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : isAdLocked || adWatchCount >= 10 ? 'Limit 10/10' : '2x Boost'}
+          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adCount >= 10 || isAdLocked ? 'Limit 10/10' : '2x Boost'}
         </button>
       </div>
 
@@ -1439,7 +1501,7 @@ const App = () => {
       <div className="space-y-4">
         {tasks.map((task) => {
           const status = taskStatus[task.id] ?? { opened: false, completed: false, claimed: false };
-          const isCompleted = task.type === 'ad' ? isAdLocked || adWatchCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
+          const isCompleted = task.type === 'ad' ? isAdLocked || adCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
           const buttonLabel = task.type === 'ad'
             ? isCompleted
               ? 'Locked'
@@ -1462,7 +1524,7 @@ const App = () => {
                     <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
                     {task.type === 'ad' && (
                       <p className="mt-2 text-xs text-white/70">
-                        {isAdLocked || adWatchCount >= 10 ? 'Limit Reached (10/10) • Available in 24h' : `Watched: ${adWatchCount}/${task.max_daily}`}
+                        {isAdLocked || adCount >= 10 ? 'Limit Reached (10/10) - Resets Tomorrow' : `Watched: ${adCount}/${task.max_daily}`}
                       </p>
                     )}
                   </div>
@@ -1484,7 +1546,7 @@ const App = () => {
                       void handleChannelTaskAction(task.id);
                     }
                   }}
-                  disabled={isCompleted || (task.type === 'ad' && isAdLoading)}
+                  disabled={task.type === 'ad' ? (adCount >= 10 || isAdLocked || isAdLoading) : isCompleted || isAdLoading}
                 >
                   {task.type === 'ad' && isAdLoading ? 'Loading...' : buttonLabel}
                 </button>
