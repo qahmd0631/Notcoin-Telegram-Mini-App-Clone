@@ -111,8 +111,8 @@ const App = () => {
 
     const todayKey = getUtcDateKey();
     const { data, error } = await supabase
-      .from('user_ad_views')
-      .select('telegram_id, ad_count, last_day_utc, last_watched_at')
+      .from('user_ad_logs')
+      .select('*')
       .eq('telegram_id', Number(userId))
       .maybeSingle();
 
@@ -122,19 +122,21 @@ const App = () => {
       return 0;
     }
 
-    const storedCount = Number(data?.ad_count ?? 0);
-    const storedDay = data?.last_day_utc ?? (data?.last_watched_at ? getUtcDateKey(new Date(data.last_watched_at)) : null);
+    const record = (data ?? null) as Record<string, unknown> | null;
+    const storedCount = Number(record?.daily_count ?? record?.ad_count ?? 0);
+    const storedDay = (record?.last_day_utc ?? record?.day_key ?? record?.log_date ?? null) as string | null;
     const normalizedCount = storedDay === todayKey ? storedCount : 0;
 
-    if (!data || storedDay !== todayKey) {
+    if (!record || storedDay !== todayKey) {
       const { error: upsertError } = await supabase
-        .from('user_ad_views')
+        .from('user_ad_logs')
         .upsert(
           {
             telegram_id: Number(userId),
-            ad_count: normalizedCount,
+            daily_count: normalizedCount,
+            total_watched: normalizedCount,
             last_day_utc: todayKey,
-            last_watched_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           },
           { onConflict: 'telegram_id' }
         );
@@ -156,13 +158,14 @@ const App = () => {
     const todayKey = getUtcDateKey();
     const safeCount = Math.max(0, Math.min(10, nextCount));
     const { error } = await supabase
-      .from('user_ad_views')
+      .from('user_ad_logs')
       .upsert(
         {
           telegram_id: Number(userId),
-          ad_count: safeCount,
+          daily_count: safeCount,
+          total_watched: safeCount,
           last_day_utc: todayKey,
-          last_watched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         },
         { onConflict: 'telegram_id' }
       );
@@ -554,13 +557,22 @@ const App = () => {
         return;
       }
 
-      const nextCount = Math.min(resolveRpcAdCount(data) ?? currentDailyCount + 1, 10);
+      if (data?.success === false) {
+        setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
+        setToastMessage('Daily ad limit reached (10/10).');
+        setTimeout(() => setToastMessage(null), 2200);
+        return;
+      }
+
+      const nextCount = Math.min(Number(data?.new_count ?? resolveRpcAdCount(data) ?? currentDailyCount + 1), 10);
+      const nextBalance = Number(data?.new_balance ?? points + 5);
       const reward = 5;
       const nextPoints = Number((points + reward).toFixed(4));
 
+      setAdWatchCount(nextCount);
+      setPoints(Number(nextBalance || nextPoints));
       syncAdCounterFromReward(data, nextCount);
       await persistDailyAdCount(currentUserId, nextCount);
-      setPoints(nextPoints);
 
       console.log('watch_ad_reward success', data);
       alert(`Success! Ad watched (${nextCount}/10). Reward added.`);
@@ -582,7 +594,7 @@ const App = () => {
 
       setToastMessage(nextCount >= 10 ? 'Daily ad task complete!' : 'Ad reward added! +5 AGEN');
       setTimeout(() => setToastMessage(null), 2200);
-      await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
+      await persistUserBalance(Number(nextBalance || nextPoints), 'task_watch_ad', currentUserId);
     } catch (err) {
       console.error('Ad Error:', err);
 
@@ -733,8 +745,18 @@ const App = () => {
       return;
     }
 
-    const nextCount = Math.min(resolveRpcAdCount(data) ?? currentDailyCount + 1, 10);
+    if (data?.success === false) {
+      setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
+      setToastMessage('Daily ad limit reached (10/10).');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
+    const nextCount = Math.min(Number(data?.new_count ?? resolveRpcAdCount(data) ?? currentDailyCount + 1), 10);
+    const nextBalance = Number(data?.new_balance ?? points);
     syncAdCounterFromReward(data, nextCount);
+    setAdWatchCount(nextCount);
+    setPoints(nextBalance);
     await persistDailyAdCount(currentUserId, nextCount);
     setSpeedBoostSecondsLeft(60);
     setToastMessage('2x speed boost activated for 60 seconds.');
@@ -788,16 +810,22 @@ const App = () => {
       return;
     }
 
-    const serverAdCount = resolveRpcAdCount(data);
-    const nextCount = Math.min(serverAdCount ?? currentDailyCount + 1, 10);
-    syncAdCounterFromReward(data, nextCount);
-    await persistDailyAdCount(userId, nextCount);
+    if (data?.success === false) {
+      setAdWatchCount(Math.min(Number(data?.new_count ?? adWatchCount), 10));
+      setToastMessage('Daily ad limit reached (10/10).');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
 
-    const adReward = 0.05;
-    const nextPoints = Number((points + adReward).toFixed(4));
-    setPoints(nextPoints);
+    const serverAdCount = Number(data?.new_count ?? resolveRpcAdCount(data) ?? currentDailyCount + 1);
+    const nextCount = Math.min(serverAdCount, 10);
+    const nextBalance = Number(data?.new_balance ?? points + 0.05);
+    syncAdCounterFromReward(data, nextCount);
+    setAdWatchCount(nextCount);
+    setPoints(nextBalance);
+    await persistDailyAdCount(userId, nextCount);
     setBonusMinutes(normalizedBonus + 5);
-    await persistUserBalance(nextPoints, 'ad_bonus', userId);
+    await persistUserBalance(nextBalance, 'ad_bonus', userId);
     alert(`Success! Ad watched (${nextCount}/10). Reward added.`);
   };
 
