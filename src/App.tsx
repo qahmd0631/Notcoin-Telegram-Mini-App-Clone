@@ -3,13 +3,33 @@ import './index.css';
 import { agenMark } from './images';
 import { supabase } from './supabase';
 
+type TelegramUser = {
+  id?: number | string;
+  username?: string;
+  first_name?: string;
+};
+
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        ready?: () => void;
+        initDataUnsafe?: {
+          user?: TelegramUser;
+        };
+      };
+    };
+  }
+}
+
 const App = () => {
   const [points, setPoints] = useState(0);
   const [isBalanceLoaded, setIsBalanceLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
-  const [telegramUser, setTelegramUser] = useState<{ id?: number; username?: string; first_name?: string } | null>(null);
+  const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
+  const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [isMining, setIsMining] = useState(false);
   const [isClaimReady, setIsClaimReady] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -26,17 +46,19 @@ const App = () => {
   const safeSessionSeconds = Number.isFinite(sessionSeconds) ? sessionSeconds : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? minedThisSession : 0;
 
-  const persistUserBalance = async (nextPoints: number, source: string) => {
+  const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
     if (typeof window === 'undefined') {
       return;
     }
 
     const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const realTelegramId = tgUser?.id;
+    const realTelegramId = userId || (tgUser?.id ? String(tgUser.id) : null);
     const username = tgUser?.username || tgUser?.first_name || 'Anonymous User';
     const normalizedPoints = Number(Number(nextPoints).toFixed(4));
 
     if (!realTelegramId) {
+      const warning = 'Please open this mini-app inside Telegram to save your balance.';
+      setTelegramWarning(warning);
       console.warn('[Supabase]', source, 'missing real Telegram ID; skipping save');
       return;
     }
@@ -53,13 +75,13 @@ const App = () => {
     }
 
     const safeCurrentPoints = Number(currentUser?.points ?? 0);
-    const newTotalPoints = Number.isFinite(normalizedPoints) ? normalizedPoints : safeCurrentPoints;
+    const updatedTotalPoints = Number.isFinite(normalizedPoints) ? normalizedPoints : safeCurrentPoints;
 
     const { data, error } = await supabase
       .from('users')
       .update({
         username,
-        points: newTotalPoints,
+        points: updatedTotalPoints,
       })
       .eq('telegram_id', realTelegramId);
 
@@ -67,13 +89,14 @@ const App = () => {
       realTelegramId,
       username,
       safeCurrentPoints,
-      newTotalPoints,
+      updatedTotalPoints,
       data,
       error,
     });
 
     if (error) {
-      console.error('[Supabase] update failed for', source, error);
+      console.error('Save failed:', error);
+      window.alert(`Save failed: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -88,14 +111,36 @@ const App = () => {
 
     if (isClaimReady) {
       const claimValue = Number(minedThisSession.toFixed(4));
-      const newTotalPoints = Number((points + claimValue).toFixed(4));
+      const updatedTotalPoints = Number((points + claimValue).toFixed(4));
+      const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+      const userId = tgUser?.id ? String(tgUser.id) : null;
 
-      setPoints(newTotalPoints);
+      if (userId) {
+        const { data, error } = await supabase
+          .from('users')
+          .update({ points: updatedTotalPoints })
+          .eq('telegram_id', userId);
+
+        console.log('[Supabase] CLAIM save', { userId, updatedTotalPoints, data, error });
+
+        if (error) {
+          console.error('Save failed:', error);
+          window.alert(`Save failed: ${error.message || 'Unknown error'}`);
+          return;
+        }
+      } else {
+        const warning = 'Please open this mini-app inside Telegram to save your balance.';
+        setTelegramWarning(warning);
+        console.warn('[Supabase] CLAIM save skipped: missing Telegram user id');
+        window.alert(warning);
+        return;
+      }
+
+      setPoints(updatedTotalPoints);
       setMinedThisSession(0);
       setSessionSeconds(0);
       setIsClaimReady(false);
       setIsMining(false);
-      await persistUserBalance(newTotalPoints, 'claim');
     }
   };
 
@@ -111,9 +156,12 @@ const App = () => {
 
     const adReward = 0.05;
     const nextPoints = Number((points + adReward).toFixed(4));
+    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+    const userId = tgUser?.id ? String(tgUser.id) : null;
+
     setPoints(nextPoints);
     setBonusMinutes(normalizedBonus + 5);
-    await persistUserBalance(nextPoints, 'ad_bonus');
+    await persistUserBalance(nextPoints, 'ad_bonus', userId);
   };
 
   const handleInviteFriend = () => {
@@ -136,27 +184,31 @@ const App = () => {
       return;
     }
 
-    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const realTelegramId = tgUser?.id;
-    const username = tgUser?.username || tgUser?.first_name || 'Anonymous User';
+    if (window.Telegram?.WebApp?.ready) {
+      window.Telegram.WebApp.ready();
+    }
+
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const userId = tgUser?.id ? String(tgUser.id) : null;
+    const username = tgUser?.username || tgUser?.first_name || 'User';
     setTelegramUser(tgUser ?? null);
 
-    const nextLink = !realTelegramId
-      ? 'https://t.me/Copmujbot/Gop'
-      : `https://t.me/Copmujbot/Gop?startapp=ref_${realTelegramId}`;
-
-    setReferralLink(nextLink);
-
-    if (!realTelegramId) {
+    if (!userId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to save your balance.');
       setIsBalanceLoaded(true);
       return;
     }
+
+    setTelegramWarning(null);
+
+    const nextLink = `https://t.me/Copmujbot/Gop?startapp=ref_${userId}`;
+    setReferralLink(nextLink);
 
     const loadUserPoints = async () => {
       const { data, error } = await supabase
         .from('users')
         .select('points, telegram_id, username')
-        .eq('telegram_id', realTelegramId)
+        .eq('telegram_id', userId)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
@@ -170,7 +222,7 @@ const App = () => {
           .from('users')
           .insert([
             {
-              telegram_id: realTelegramId,
+              telegram_id: userId,
               username,
               points: 0,
             },
@@ -182,14 +234,14 @@ const App = () => {
           return;
         }
 
-        console.log('[Supabase] New user created with zero balance', { realTelegramId, username });
+        console.log('[Supabase] New user created with zero balance', { userId, username });
         setPoints(0);
         setIsBalanceLoaded(true);
         return;
       }
 
       const savedPoints = Number(data.points ?? 0);
-      console.log('[Supabase] Loaded saved user balance', { realTelegramId, username, savedPoints });
+      console.log('[Supabase] Loaded saved user balance', { userId, username, savedPoints });
       setPoints(savedPoints);
       setIsBalanceLoaded(true);
     };
@@ -292,6 +344,12 @@ const App = () => {
   const renderHomeView = () => (
     <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
+
+      {telegramWarning && (
+        <div className="fixed inset-x-3 top-3 z-20 rounded-2xl border border-[#f7d780]/40 bg-[#171a20]/95 px-4 py-3 text-center text-xs font-bold text-[#f7d780] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+          {telegramWarning}
+        </div>
+      )}
 
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between">
@@ -430,7 +488,7 @@ const App = () => {
           <div className="rounded-full bg-[#f4c75b]/15 px-3 py-2 text-xs font-bold text-[#f7d780]">Online</div>
         </div>
         <div className="mt-4 rounded-2xl bg-[#13161b] p-3 text-sm text-white/80">
-          <span className="text-white/50">Telegram ID:</span> {telegramUser?.id ?? 'N/A'}
+          <span className="text-white/50">Telegram ID:</span> {telegramUser?.id ? String(telegramUser.id) : 'N/A'}
         </div>
       </div>
 
