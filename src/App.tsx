@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
 import './index.css';
-import { agenMark, mobiusLogo } from './images';
+import { mobiusLogo } from './images';
 import { supabase } from './supabase';
 
 type TelegramUser = {
@@ -895,6 +895,15 @@ const App = () => {
 
           <div className="mt-8 flex items-center justify-center">
             <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
+              <button
+                type="button"
+                aria-label="Activate 2x mining speed boost"
+                className="absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)]"
+                onClick={handleSpeedBoost}
+              >
+                <span className="text-[11px] font-black">⚡</span>
+                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</span>
+              </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
               <img src={mobiusLogo} width={170} height={170} alt="Golden Mobius triangle brand mark" className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
@@ -908,16 +917,10 @@ const App = () => {
               {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
             </button>
             <button
-              className="w-full rounded-[18px] border border-[#e5c158]/25 bg-[#171a1d] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#f8d57a] shadow-[0_0_18px_rgba(229,193,88,0.06)]"
+              className="w-full rounded-[18px] border border-[#e5c158]/25 bg-[#171a1d] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#f8d77a] shadow-[0_0_18px_rgba(229,193,88,0.06)]"
               onClick={handleWatchAd}
             >
               Watch Ad (+5 Mins)
-            </button>
-            <button
-              className="w-full rounded-[18px] border border-[#5ee7a9]/30 bg-[#0f1d1a] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#9ff7c3] shadow-[0_0_18px_rgba(61,214,141,0.12)]"
-              onClick={handleSpeedBoost}
-            >
-              {speedBoostSecondsLeft > 0 ? `2x Speed Boost • ${speedBoostSecondsLeft}s` : '2x Speed Boost (1 Min)'}
             </button>
           </div>
         </div>
@@ -1201,8 +1204,8 @@ const App = () => {
 
       <div className="rounded-[24px] border border-[#f7d780]/20 bg-[#181b21]/80 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)]">
         <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Total AGEN Assets</p>
-        <div className="mt-3 flex items-end gap-2">
-          <img src={agenMark} width={28} height={28} alt="AGEN" />
+        <div className="mt-3 flex items-center gap-2">
+          <img src={mobiusLogo} width={28} height={28} alt="Gold Mobius logo" />
           <span className="text-3xl font-black text-[#f9e6ad]">{points.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
