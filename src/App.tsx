@@ -42,60 +42,59 @@ const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; cl
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
-    aria-label="AURA GEN logo"
+    aria-label="AGEN logo"
     role="img"
-    style={{ filter: 'drop-shadow(0 0 14px rgba(245, 198, 74, 0.8)) drop-shadow(0 0 28px rgba(200, 148, 38, 0.75))' }}
+    style={{ filter: 'drop-shadow(0 0 12px rgba(247, 206, 101, 0.8)) drop-shadow(0 0 28px rgba(191, 126, 14, 0.7))' }}
   >
     <defs>
-      <linearGradient id="goldPlate" x1="30" y1="20" x2="190" y2="190" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#fff4c1" />
-        <stop offset="0.18" stopColor="#f6d46d" />
-        <stop offset="0.44" stopColor="#d9a933" />
-        <stop offset="0.68" stopColor="#a76e12" />
-        <stop offset="1" stopColor="#fbe9a6" />
+      <linearGradient id="agenCoinGold" x1="30" y1="24" x2="190" y2="196" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#fff7d0" />
+        <stop offset="0.14" stopColor="#fce99a" />
+        <stop offset="0.32" stopColor="#f5c74d" />
+        <stop offset="0.56" stopColor="#d59a1d" />
+        <stop offset="0.8" stopColor="#b56d0b" />
+        <stop offset="1" stopColor="#fff0ad" />
       </linearGradient>
-      <radialGradient id="goldInner" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(82 62) rotate(44) scale(130 120)">
-        <stop offset="0" stopColor="#fff8d8" />
-        <stop offset="0.2" stopColor="#f8d56a" />
-        <stop offset="0.52" stopColor="#d7a53a" />
-        <stop offset="0.8" stopColor="#9d6717" />
-        <stop offset="1" stopColor="#f2d88e" />
-      </radialGradient>
-      <linearGradient id="ribbonGold" x1="34" y1="34" x2="176" y2="182" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#fff8d8" />
-        <stop offset="0.18" stopColor="#ffe79a" />
-        <stop offset="0.42" stopColor="#f4cc4f" />
-        <stop offset="0.65" stopColor="#c88717" />
-        <stop offset="1" stopColor="#fbe9a2" />
+      <linearGradient id="agenTextGold" x1="58" y1="66" x2="160" y2="160" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#fff9dd" />
+        <stop offset="0.2" stopColor="#ffe69a" />
+        <stop offset="0.5" stopColor="#f4c34d" />
+        <stop offset="0.76" stopColor="#c87e13" />
+        <stop offset="1" stopColor="#fff2b0" />
       </linearGradient>
-      <linearGradient id="ribbonEdge" x1="62" y1="50" x2="151" y2="170" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stopColor="#ffefba" />
-        <stop offset="0.3" stopColor="#f9d974" />
-        <stop offset="0.7" stopColor="#b8750d" />
-        <stop offset="1" stopColor="#fff0a5" />
-      </linearGradient>
-      <filter id="luxuryGlow" x="-40%" y="-40%" width="180%" height="180%">
-        <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#f8d77a" floodOpacity="0.95" />
-        <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#8b5911" floodOpacity="0.38" />
+      <filter id="agenShadow" x="-40%" y="-40%" width="180%" height="180%">
+        <feDropShadow dx="0" dy="3" stdDeviation="3.5" floodColor="#8f5d0d" floodOpacity="0.35" />
+        <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#f9d96b" floodOpacity="0.9" />
       </filter>
     </defs>
 
-    <g filter="url(#luxuryGlow)">
-      <circle cx="110" cy="110" r="92" fill="url(#goldPlate)" />
-      <circle cx="110" cy="110" r="82" fill="url(#goldInner)" stroke="#fff4c2" strokeOpacity="0.65" strokeWidth="3" />
-      <circle cx="110" cy="110" r="74" fill="none" stroke="#8b5d12" strokeOpacity="0.68" strokeWidth="4" />
-      <circle cx="110" cy="110" r="66" fill="none" stroke="#fbe5a4" strokeOpacity="0.52" strokeWidth="2" />
+    <g filter="url(#agenShadow)">
+      <circle cx="110" cy="110" r="94" fill="url(#agenCoinGold)" />
+      <circle cx="110" cy="110" r="82" fill="#fff3bf" fillOpacity="0.12" stroke="#f9efbf" strokeOpacity="0.75" strokeWidth="2.2" />
+      <circle cx="110" cy="110" r="72" stroke="#8b5d11" strokeOpacity="0.8" strokeWidth="4" fill="none" />
+      <circle cx="110" cy="110" r="60" stroke="#f8d77b" strokeOpacity="0.52" strokeWidth="2" fill="none" />
 
-      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M110 39C142 39 171 57 180 87C189 116 180 152 153 174C127 196 90 199 62 181C35 163 24 128 34 96C45 63 75 39 110 39Z" stroke="url(#ribbonGold)" strokeWidth="13" opacity="0.96"/>
-        <path d="M110 54C136 54 159 69 167 94C175 120 165 150 143 167C121 183 93 184 72 170C51 155 42 128 48 102C55 75 78 54 110 54Z" stroke="url(#ribbonEdge)" strokeWidth="8" opacity="0.9"/>
-        <path d="M76 146C92 115 102 94 120 73C123 101 126 131 109 160C96 156 84 152 76 146Z" stroke="url(#ribbonGold)" strokeWidth="10"/>
-        <path d="M106 80C125 91 138 104 149 120C140 143 123 159 103 169C92 147 88 117 106 80Z" stroke="url(#ribbonGold)" strokeWidth="10"/>
-        <path d="M77 129C60 124 48 112 46 95C45 79 54 63 71 53C80 72 84 95 77 129Z" stroke="url(#ribbonGold)" strokeWidth="9"/>
-      </g>
+      <path d="M56 76C70 51 88 38 110 38C132 38 150 51 164 76" stroke="url(#agenCoinGold)" strokeWidth="9" strokeLinecap="round" fill="none" />
+      <path d="M56 144C70 169 88 182 110 182C132 182 150 169 164 144" stroke="url(#agenCoinGold)" strokeWidth="9" strokeLinecap="round" fill="none" />
 
-      <circle cx="110" cy="110" r="34" fill="none" stroke="#fef3c4" strokeOpacity="0.8" strokeWidth="3" />
-      <circle cx="110" cy="110" r="22" fill="none" stroke="#8b5d12" strokeOpacity="0.7" strokeWidth="3" />
+      <text
+        x="110"
+        y="125"
+        textAnchor="middle"
+        fontSize="36"
+        fontWeight="900"
+        letterSpacing="2.2"
+        fontFamily="Segoe UI, Arial, sans-serif"
+        fill="url(#agenTextGold)"
+        style={{ paintOrder: 'stroke', stroke: '#9a5d07', strokeWidth: 2.3 }}
+      >
+        AGEN
+      </text>
+
+      <path d="M73 82L94 110L73 138" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M147 82L126 110L147 138" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M102 78L110 90L118 78" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M102 142L110 130L118 142" stroke="url(#agenTextGold)" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
     </g>
   </svg>
 );
