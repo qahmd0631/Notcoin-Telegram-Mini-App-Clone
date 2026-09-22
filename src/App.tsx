@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
 import './index.css';
-import { mobiusLogo } from './images';
 import { supabase } from './supabase';
 
 type TelegramUser = {
@@ -34,6 +33,33 @@ declare global {
     show_11862041?: () => void | Promise<unknown>;
   }
 }
+
+const GoldMobiusLogo = ({ size = 120, className = '' }: { size?: number; className?: string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 200 200"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-label="AURA GEN Logo"
+    role="img"
+  >
+    <defs>
+      <linearGradient id="goldGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#FFE259" />
+        <stop offset="100%" stopColor="#FFA751" />
+      </linearGradient>
+      <linearGradient id="goldGradient2" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#FFD700" />
+        <stop offset="50%" stopColor="#B8860B" />
+        <stop offset="100%" stopColor="#D4AF37" />
+      </linearGradient>
+    </defs>
+    <path d="M100 20 L170 150 C160 170 130 180 100 180 C70 180 40 170 30 150 Z" fill="url(#goldGradient1)" />
+    <path d="M100 20 L30 150 L100 110 L170 150 Z" fill="url(#goldGradient2)" opacity="0.9" />
+  </svg>
+);
 
 const App = () => {
   const [points, setPoints] = useState(0);
@@ -855,8 +881,11 @@ const App = () => {
 
       <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between gap-2">
-          <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
-            Lvl 1 • IDLE
+          <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
+            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#0c0d10]">
+              <GoldMobiusLogo size={22} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.8)]" />
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl 1 • IDLE</div>
           </div>
           <div className="flex items-center gap-2">
             {walletAddress && (
@@ -905,7 +934,7 @@ const App = () => {
                 <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-              <img src={mobiusLogo} width={170} height={170} alt="Golden Mobius triangle brand mark" className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
+              <GoldMobiusLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
           </div>
 
@@ -1205,7 +1234,7 @@ const App = () => {
       <div className="rounded-[24px] border border-[#f7d780]/20 bg-[#181b21]/80 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)]">
         <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Total AGEN Assets</p>
         <div className="mt-3 flex items-center gap-2">
-          <img src={mobiusLogo} width={28} height={28} alt="Gold Mobius logo" />
+          <GoldMobiusLogo size={28} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.8)]" />
           <span className="text-3xl font-black text-[#f9e6ad]">{points.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
