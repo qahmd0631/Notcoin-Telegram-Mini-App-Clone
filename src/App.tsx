@@ -225,69 +225,59 @@ const App = () => {
 
   const renderHomeView = () => (
     <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
-      <div className="fixed top-0 left-0 w-full px-4 pt-6 z-10 text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
+
+      <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
         <div className="flex items-center justify-between">
-          <div className="rounded-full bg-[#1a1d24]/80 px-3 py-2 text-xs font-semibold tracking-[0.18em] text-[#f9d77c] uppercase shadow-lg shadow-black/20 backdrop-blur-sm">
-            Level 1 • Mining
+          <div className="rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-3 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c] shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
+            Lvl 1 • IDLE
           </div>
-          <button className="rounded-full bg-[#f4c75b] px-4 py-2 text-xs font-bold text-[#1b1412] shadow-lg shadow-[#f4c75b]/20">
+          <button className="rounded-full bg-[linear-gradient(135deg,#00a8ff,#58d7ff)] px-4 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#06131d] shadow-[0_0_24px_rgba(0,168,255,0.45)]">
             Connect Wallet
           </button>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col justify-center pt-20 pb-4">
-        <div className="w-full max-w-md mx-auto rounded-[28px] border border-[#f8d787]/20 bg-[#1b1d22]/70 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-sm">
-          <div className="flex items-center justify-between text-[#f5d58f]">
-            <span className="text-xs uppercase tracking-[0.2em] text-[#f9d77c]">Balance</span>
-            <span className="text-xs text-white/70">{isMining ? 'Mining' : isClaimReady ? 'Ready' : 'Standby'}</span>
-          </div>
-
-          <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-white/60">Total AGEN</div>
-            <div className="mt-2 flex items-end gap-2">
-              <img src={agenMark} width={32} height={32} alt="AGEN" />
-              <span className="text-4xl font-black leading-none text-[#f9e6ad]">{points.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+      <div className="relative z-10 flex flex-1 flex-col justify-center pb-6 pt-20">
+        <div className="mx-auto w-full max-w-md">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Holding Wallet</div>
+              <div className="mt-3 text-lg font-black text-[#f9e4a4]">{holdingBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+            </div>
+            <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Pool Wallet</div>
+              <div className="mt-3 text-lg font-black text-[#f9e4a4]">{poolBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-2xl bg-[#262a32] p-3">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/55">Holding</div>
-              <div className="mt-2 text-lg font-bold text-[#f9e6ad]">{holdingBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+          <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
+            <div className="text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">Live Counter</div>
+            <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
+              {isMining ? `+${safeMinedThisSession.toFixed(4)} AGEN` : isClaimReady ? `+${safeMinedThisSession.toFixed(4)} AGEN` : '+0.0000 AGEN'}
             </div>
-            <div className="rounded-2xl bg-[#262a32] p-3">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/55">Pool</div>
-              <div className="mt-2 text-lg font-bold text-[#f9e6ad]">{poolBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[#f3c65e]/20 bg-[#f4c75b]/10 px-4 py-3 text-center">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-[#f4d889]">Mining status</div>
-            <div className="mt-1 text-lg font-bold text-[#fff4d1]">
-              {isMining ? `+${safeMinedThisSession.toFixed(4)} AGEN` : isClaimReady ? `+${safeMinedThisSession.toFixed(4)} AGEN ready` : '+0.0000 AGEN'}
-            </div>
-            <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-white/60">
-              {isMining ? `Mining ${safeSessionSeconds}s / ${totalMiningDuration}s` : isClaimReady ? 'Claim available' : 'Idle'}
+            <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
+              <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
+              {isMining ? `Mining ${safeSessionSeconds}s / ${totalMiningDuration}s` : isClaimReady ? 'Ready to claim' : 'Idle'}
             </div>
           </div>
 
-          <div className="mt-7 flex items-center justify-center">
-            <div className="relative flex h-52 w-52 items-center justify-center rounded-full bg-[radial-gradient(circle,_rgba(249,208,122,0.18),_rgba(249,208,122,0.04)_52%,_transparent_70%)]">
-              <div className="absolute inset-3 rounded-full border border-[#f7d780]/20"></div>
-              <img src={agenMark} width={200} height={200} alt="AGEN golden Penrose triangle" className="drop-shadow-[0_0_35px_rgba(244,199,91,0.6)]" />
+          <div className="mt-8 flex items-center justify-center">
+            <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
+              <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
+              <img src={agenMark} width={170} height={170} alt="AGEN golden Penrose triangle" className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
             </div>
           </div>
 
           <div className="mt-6 flex flex-col gap-3">
             <button
-              className="w-full rounded-2xl bg-gradient-to-r from-[#f7cd69] via-[#f7bf4a] to-[#ffebae] px-5 py-4 text-lg font-black tracking-[0.18em] text-[#1b1412] shadow-[0_12px_30px_rgba(247,191,74,0.35)] transition-transform active:scale-[0.99]"
+              className="w-full rounded-[20px] bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-5 py-4 text-lg font-black uppercase tracking-[0.18em] text-[#16130b] shadow-[0_18px_35px_rgba(212,175,55,0.35)] transition-transform active:scale-[0.99]"
               onClick={handleMiningAction}
             >
               {isMining ? 'MINING…' : isClaimReady ? 'CLAIM' : 'START'}
             </button>
             <button
-              className="w-full rounded-2xl border border-[#f7d780]/40 bg-[#1f2127] px-4 py-3 text-sm font-bold uppercase tracking-[0.14em] text-[#f5d58f]"
+              className="w-full rounded-[18px] border border-[#e5c158]/25 bg-[#171a1d] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#f8d57a] shadow-[0_0_18px_rgba(229,193,88,0.06)]"
               onClick={handleWatchAd}
             >
               Watch Ad (+5 Mins)
@@ -424,11 +414,8 @@ const App = () => {
   );
 
   return (
-    <div className="bg-gradient-main text-white font-medium" style={{ touchAction: 'auto' }}>
-      <div className="absolute inset-0 h-1/2 bg-gradient-overlay z-0"></div>
-      <div className="absolute inset-0 flex items-center justify-center z-0">
-        <div className="radial-gradient-overlay"></div>
-      </div>
+    <div className="min-h-screen bg-[#0a0b0e] text-white font-medium" style={{ touchAction: 'auto' }}>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.18),_transparent_35%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.1),_transparent_40%)]" />
 
       <div className="relative z-10 w-full">
         {activeTab === 'home' && renderHomeView()}
@@ -437,7 +424,7 @@ const App = () => {
         {activeTab === 'profile' && renderProfileView()}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-[1000] bg-[#12151b] border-t border-white/10 px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2">
+      <div className="fixed bottom-0 left-0 right-0 z-[1000] border-t border-[#e5c158]/15 bg-[#101317]/95 px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md">
         <div className="grid grid-cols-4 gap-1 text-center text-[10px] font-medium">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
@@ -445,8 +432,8 @@ const App = () => {
             return (
               <button
                 key={item.key}
-                className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 transition-colors ${
-                  isActive ? 'bg-white/10 text-white' : 'text-white/70'
+                className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 transition-all ${
+                  isActive ? 'bg-[#f5d57c]/10 text-[#f7d780] shadow-[0_0_16px_rgba(229,193,88,0.12)]' : 'text-white/70'
                 }`}
                 onClick={() => setActiveTab(item.key)}
               >
