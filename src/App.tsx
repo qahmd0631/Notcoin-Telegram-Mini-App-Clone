@@ -76,8 +76,8 @@ const App = () => {
       return;
     }
 
-    const safeCurrentPoints = Number(currentUser?.points ?? 0);
-    const updatedTotalPoints = Number.isFinite(normalizedPoints) ? normalizedPoints : safeCurrentPoints;
+    const safeCurrentPoints = Number.parseFloat(String(currentUser?.points ?? 0));
+    const updatedTotalPoints = Number.isFinite(normalizedPoints) ? Number(normalizedPoints.toFixed(4)) : Number(safeCurrentPoints.toFixed(4));
 
     const { data, error } = await supabase
       .from('users')
@@ -97,8 +97,8 @@ const App = () => {
     });
 
     if (error) {
-      console.error('Save failed:', error);
-      window.alert(`Save failed: ${error.message || 'Unknown error'}`);
+      console.error('[Supabase] Save failed:', error);
+      setTelegramWarning('Balance save failed. Please try again.');
     }
   };
 
@@ -112,9 +112,9 @@ const App = () => {
     }
 
     if (isClaimReady) {
-      const currentBalance = Number.isFinite(points) ? points : 0;
-      const claimValue = Number(minedThisSession.toFixed(4));
-      const newBalance = Number((currentBalance + claimValue).toFixed(4));
+      const currentPoints = Number.parseFloat(String(points || 0));
+      const minedAmount = Number.parseFloat(String(minedThisSession || 0));
+      const newTotalPoints = Number((currentPoints + minedAmount).toFixed(4));
       const webApp = window.Telegram?.WebApp;
       const tgUser = webApp?.initDataUnsafe?.user ?? null;
       const activeTelegramId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
@@ -123,24 +123,23 @@ const App = () => {
         const warning = 'Please open this mini-app inside Telegram to save your balance.';
         setTelegramWarning(warning);
         console.warn('[Supabase] CLAIM save skipped: missing Telegram user id');
-        window.alert(warning);
         return;
       }
 
       const { data, error } = await supabase
         .from('users')
-        .update({ points: newBalance })
+        .update({ points: newTotalPoints })
         .eq('telegram_id', activeTelegramId);
 
-      console.log('[Supabase] CLAIM save', { activeTelegramId, currentBalance, claimValue, newBalance, data, error });
+      console.log('[Supabase] CLAIM save', { activeTelegramId, currentPoints, minedAmount, newTotalPoints, data, error });
 
       if (error) {
-        console.error('Save failed:', error);
-        window.alert(`Save failed: ${error.message || 'Unknown error'}`);
+        console.error('[Supabase] CLAIM update failed:', error);
+        setTelegramWarning('Claim save failed. Please try again.');
         return;
       }
 
-      setPoints(newBalance);
+      setPoints(newTotalPoints);
       setMinedThisSession(0);
       setSessionSeconds(0);
       setIsClaimReady(false);
