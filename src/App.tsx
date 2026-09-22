@@ -117,6 +117,7 @@ const App = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [adWatchCount, setAdWatchCount] = useState(0);
+  const [isAdLocked, setIsAdLocked] = useState(false);
   const [isAdLoading, setIsAdLoading] = useState(false);
   const [taskStatus, setTaskStatus] = useState<Record<string, { opened: boolean; completed: boolean; claimed: boolean }>>({
     watch_ad: { opened: false, completed: false, claimed: false },
@@ -146,6 +147,7 @@ const App = () => {
   const fetchInitialAdCount = async (userId: string | null) => {
     if (!userId) {
       setAdWatchCount(0);
+      setIsAdLocked(false);
       return 0;
     }
 
@@ -158,11 +160,13 @@ const App = () => {
     if (error && error.code !== 'PGRST116') {
       console.warn('[Ad Count] Failed to load saved ad count:', error);
       setAdWatchCount(0);
+      setIsAdLocked(false);
       return 0;
     }
 
     if (!data) {
       setAdWatchCount(0);
+      setIsAdLocked(false);
       return 0;
     }
 
@@ -172,7 +176,42 @@ const App = () => {
     const nextCount = locked ? Math.min(savedCount, 10) : 0;
 
     setAdWatchCount(nextCount);
+    setIsAdLocked(locked);
     return nextCount;
+  };
+
+  const syncMiningState = async (userId: string | null) => {
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('sync_mining_state', {
+        p_user_id: String(userId),
+      });
+
+      if (error) {
+        console.warn('[Mining Sync] Failed to sync mining state:', error);
+        return;
+      }
+
+      const lastClaimRaw = data?.last_claim_time ?? data?.last_claimed_at ?? data?.last_claimed ?? null;
+      const miningRateValue = Number(data?.mining_rate ?? data?.rate ?? 0.0001);
+      const lastClaimMs = lastClaimRaw ? new Date(lastClaimRaw).getTime() : null;
+      const nowMs = Date.now();
+      const pendingHours = lastClaimMs ? Math.max(0, (nowMs - lastClaimMs) / (1000 * 60 * 60)) : 0;
+      const pendingBalance = Number((pendingHours * miningRateValue).toFixed(4));
+
+      if (Number.isFinite(pendingBalance) && pendingBalance > 0) {
+        setMinedThisSession(pendingBalance);
+      }
+
+      if (data?.points !== undefined && data?.points !== null) {
+        setPoints(Number(data.points));
+      }
+    } catch (error) {
+      console.warn('[Mining Sync] Error syncing mining state:', error);
+    }
   };
 
   const syncDailyAdCount = async (userId: string | null) => {
@@ -247,6 +286,7 @@ const App = () => {
     }
 
     setAdWatchCount(safeCount);
+    setIsAdLocked(safeCount >= 10);
     return safeCount;
   };
 
@@ -1077,6 +1117,7 @@ const App = () => {
       }
 
       await fetchInitialAdCount(realUserId);
+      await syncMiningState(realUserId);
       await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
     };
@@ -1234,10 +1275,10 @@ const App = () => {
                 aria-label="Activate 2x mining speed boost"
                 className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
                 onClick={() => void handleSpeedBoost()}
-                disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
+                disabled={isAdLocked || adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
               >
                 <span className="text-[11px] font-black">⚡</span>
-                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? 'LOCK' : '2x'}</span>
+                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : isAdLocked || adWatchCount >= 10 ? 'LOCK' : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
               <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
@@ -1273,9 +1314,9 @@ const App = () => {
         <button
           className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
           onClick={() => void handleSpeedBoost()}
-          disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
+          disabled={isAdLocked || adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
         >
-          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? 'Limit 10/10' : '2x Boost'}
+          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : isAdLocked || adWatchCount >= 10 ? 'Limit 10/10' : '2x Boost'}
         </button>
       </div>
 
@@ -1398,7 +1439,7 @@ const App = () => {
       <div className="space-y-4">
         {tasks.map((task) => {
           const status = taskStatus[task.id] ?? { opened: false, completed: false, claimed: false };
-          const isCompleted = task.type === 'ad' ? adWatchCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
+          const isCompleted = task.type === 'ad' ? isAdLocked || adWatchCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
           const buttonLabel = task.type === 'ad'
             ? isCompleted
               ? 'Locked'
@@ -1421,7 +1462,7 @@ const App = () => {
                     <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
                     {task.type === 'ad' && (
                       <p className="mt-2 text-xs text-white/70">
-                        {adWatchCount >= 10 ? 'Limit Reached (10/10) • Available in 24h' : `Watched: ${adWatchCount}/${task.max_daily}`}
+                        {isAdLocked || adWatchCount >= 10 ? 'Limit Reached (10/10) • Available in 24h' : `Watched: ${adWatchCount}/${task.max_daily}`}
                       </p>
                     )}
                   </div>
