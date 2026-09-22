@@ -101,6 +101,80 @@ const App = () => {
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
 
+  const getUtcDateKey = (value = new Date()) => value.toISOString().slice(0, 10);
+
+  const syncDailyAdCount = async (userId: string | null) => {
+    if (!userId) {
+      setAdWatchCount(0);
+      return 0;
+    }
+
+    const todayKey = getUtcDateKey();
+    const { data, error } = await supabase
+      .from('user_ad_views')
+      .select('telegram_id, ad_count, last_day_utc, last_watched_at')
+      .eq('telegram_id', Number(userId))
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.warn('[Ad Count] Failed to load daily ad count:', error);
+      setAdWatchCount(0);
+      return 0;
+    }
+
+    const storedCount = Number(data?.ad_count ?? 0);
+    const storedDay = data?.last_day_utc ?? (data?.last_watched_at ? getUtcDateKey(new Date(data.last_watched_at)) : null);
+    const normalizedCount = storedDay === todayKey ? storedCount : 0;
+
+    if (!data || storedDay !== todayKey) {
+      const { error: upsertError } = await supabase
+        .from('user_ad_views')
+        .upsert(
+          {
+            telegram_id: Number(userId),
+            ad_count: normalizedCount,
+            last_day_utc: todayKey,
+            last_watched_at: new Date().toISOString(),
+          },
+          { onConflict: 'telegram_id' }
+        );
+
+      if (upsertError) {
+        console.warn('[Ad Count] Failed to reset daily ad count:', upsertError);
+      }
+    }
+
+    setAdWatchCount(normalizedCount);
+    return normalizedCount;
+  };
+
+  const persistDailyAdCount = async (userId: string | null, nextCount: number) => {
+    if (!userId) {
+      return 0;
+    }
+
+    const todayKey = getUtcDateKey();
+    const { error } = await supabase
+      .from('user_ad_views')
+      .upsert(
+        {
+          telegram_id: Number(userId),
+          ad_count: Math.max(0, Math.min(10, nextCount)),
+          last_day_utc: todayKey,
+          last_watched_at: new Date().toISOString(),
+        },
+        { onConflict: 'telegram_id' }
+      );
+
+    if (error) {
+      console.warn('[Ad Count] Failed to persist ad count:', error);
+      return 0;
+    }
+
+    setAdWatchCount(Math.max(0, Math.min(10, nextCount)));
+    return Math.max(0, Math.min(10, nextCount));
+  };
+
   const miningRate = 0.0001;
   const effectiveMiningRate = Number((miningRate * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
   const minerLevels = [
@@ -409,7 +483,10 @@ const App = () => {
       return;
     }
 
-    if (adWatchCount >= 10 || isAdLoading) {
+    const currentDailyCount = await syncDailyAdCount(currentUserId);
+    if (currentDailyCount >= 10 || isAdLoading) {
+      setToastMessage('Daily ad limit reached (10/10).');
+      setTimeout(() => setToastMessage(null), 2200);
       return;
     }
 
@@ -421,13 +498,13 @@ const App = () => {
     setIsAdLoading(true);
 
     try {
-      (window as any).show_11862041();
+      await (window as any).show_11862041();
 
-      const nextCount = Math.min(adWatchCount + 1, 10);
+      const nextCount = Math.min(currentDailyCount + 1, 10);
       const reward = 5;
       const nextPoints = Number((points + reward).toFixed(4));
 
-      setAdWatchCount(nextCount);
+      await persistDailyAdCount(currentUserId, nextCount);
       setPoints(nextPoints);
 
       const { data, error } = await supabase.rpc('watch_ad_reward', {
@@ -569,21 +646,39 @@ const App = () => {
     }
   };
 
-  const handleSpeedBoost = () => {
+  const handleSpeedBoost = async () => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+    if (!currentUserId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to use the 2x boost.');
+      return;
+    }
+
     if (speedBoostSecondsLeft > 0) {
       setToastMessage('Speed boost already active.');
       window.setTimeout(() => setToastMessage(null), 2200);
       return;
     }
 
+    const currentDailyCount = await syncDailyAdCount(currentUserId);
+    if (currentDailyCount >= 10) {
+      setToastMessage('Daily ad limit reached (10/10).');
+      setTimeout(() => setToastMessage(null), 2200);
+      return;
+    }
+
     if (typeof window !== 'undefined' && typeof window.show_11862041 === 'function') {
       try {
-        window.show_11862041();
+        await window.show_11862041();
       } catch (error) {
         console.warn('[Monetag] Rewarded ad trigger failed:', error);
+        setToastMessage('Ad did not complete. Please try again.');
+        setTimeout(() => setToastMessage(null), 2200);
+        return;
       }
     }
 
+    const nextCount = Math.min(currentDailyCount + 1, 10);
+    await persistDailyAdCount(currentUserId, nextCount);
     setSpeedBoostSecondsLeft(60);
     setToastMessage('2x speed boost activated for 60 seconds.');
     window.setTimeout(() => setToastMessage(null), 2200);
@@ -784,6 +879,7 @@ const App = () => {
         }
       }
 
+      await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
     };
 
@@ -938,11 +1034,12 @@ const App = () => {
               <button
                 type="button"
                 aria-label="Activate 2x mining speed boost"
-                className="absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)]"
-                onClick={handleSpeedBoost}
+                className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
+                onClick={() => void handleSpeedBoost()}
+                disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
               >
                 <span className="text-[11px] font-black">⚡</span>
-                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</span>
+                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? '10/10' : '2x'}</span>
               </button>
               <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
               <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
@@ -976,10 +1073,11 @@ const App = () => {
           <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
         </div>
         <button
-          className="rounded-full border border-[#f7d780]/30 bg-[#f4c75b]/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-[#f9e6ad]"
-          onClick={handleSpeedBoost}
+          className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adWatchCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
+          onClick={() => void handleSpeedBoost()}
+          disabled={adWatchCount >= 10 || speedBoostSecondsLeft > 0 || isAdLoading}
         >
-          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x Boost'}
+          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adWatchCount >= 10 ? '10/10' : '2x Boost'}
         </button>
       </div>
 
