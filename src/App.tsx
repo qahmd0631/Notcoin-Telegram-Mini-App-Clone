@@ -60,18 +60,21 @@ const App = () => {
     return { webApp, tgUser, realUserId };
   };
   const getReferrerId = () => {
-    const initDataParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
-    if (initDataParam && initDataParam.startsWith('ref_')) {
-      return initDataParam.replace('ref_', '');
+    let referrerId = null;
+    const initData = window.Telegram?.WebApp?.initDataUnsafe;
+    const startParam = initData?.start_param;
+
+    if (startParam && startParam.startsWith('ref_')) {
+      referrerId = startParam.replace('ref_', '');
+    } else {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tgStartParam = urlParams.get('tgWebAppStartParam') || urlParams.get('startapp');
+      if (tgStartParam && tgStartParam.startsWith('ref_')) {
+        referrerId = tgStartParam.replace('ref_', '');
+      }
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const tgStartParam = urlParams.get('tgWebAppStartParam') || urlParams.get('startapp');
-    if (tgStartParam && tgStartParam.startsWith('ref_')) {
-      return tgStartParam.replace('ref_', '');
-    }
-
-    return null;
+    return referrerId;
   };
 
   const syncReferralStats = async (userId: string | null) => {
