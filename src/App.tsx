@@ -105,10 +105,18 @@ const App = () => {
   };
 
   const awardReferralBonus = async (referrerId: string, referredId: string) => {
+    const numericReferrerId = Number(referrerId);
+    const numericReferredId = Number(referredId);
+
+    if (!Number.isFinite(numericReferrerId) || !Number.isFinite(numericReferredId)) {
+      console.warn('[Referral] Invalid numeric referrer or referred ID:', { referrerId, referredId });
+      return;
+    }
+
     const { data: existingReferral, error: referralCheckError } = await supabase
       .from('referrals')
       .select('id')
-      .eq('referred_id', referredId)
+      .eq('referred_id', numericReferredId)
       .maybeSingle();
 
     if (referralCheckError && referralCheckError.code !== 'PGRST116') {
@@ -124,8 +132,8 @@ const App = () => {
       .from('referrals')
       .insert([
         {
-          referrer_id: referrerId,
-          referred_id: referredId,
+          referrer_id: numericReferrerId,
+          referred_id: numericReferredId,
           reward_amount: 10,
           claimed: false,
         },
@@ -139,7 +147,7 @@ const App = () => {
     const { data: referrerUser, error: referrerLoadError } = await supabase
       .from('users')
       .select('points')
-      .eq('telegram_id', referrerId)
+      .eq('telegram_id', String(numericReferrerId))
       .maybeSingle();
 
     if (referrerLoadError && referrerLoadError.code !== 'PGRST116') {
@@ -153,7 +161,7 @@ const App = () => {
     const { error: referrerUpdateError } = await supabase
       .from('users')
       .update({ points: nextReferrerBalance })
-      .eq('telegram_id', referrerId);
+      .eq('telegram_id', String(numericReferrerId));
 
     if (referrerUpdateError) {
       console.error('[Referral] Referrer reward update failed:', referrerUpdateError);
@@ -428,6 +436,10 @@ const App = () => {
       }
 
       if (!data) {
+        if (referrerId && referrerId !== realUserId) {
+          await awardReferralBonus(referrerId, realUserId);
+        }
+
         const { error: insertError } = await supabase
           .from('users')
           .insert([
@@ -449,10 +461,6 @@ const App = () => {
           realUsername,
           referrerId,
         });
-
-        if (referrerId && referrerId !== realUserId) {
-          await awardReferralBonus(referrerId, realUserId);
-        }
 
         setPoints(0);
       } else {
