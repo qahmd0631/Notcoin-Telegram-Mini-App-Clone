@@ -4,8 +4,8 @@ import Arrow from './icons/Arrow';
 import { agenMark, bear, highVoltage, rocket, trophy } from './images';
 
 const App = () => {
-  const [points, setPoints] = useState(29857775);
-  const [energy, setEnergy] = useState(2532);
+  const [points, setPoints] = useState(0);
+  const [energy, setEnergy] = useState(0);
   const [clicks, setClicks] = useState<{ id: number, x: number, y: number }[]>([]);
   const [showFrens, setShowFrens] = useState(false);
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
@@ -46,6 +46,10 @@ const App = () => {
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.clear();
+    }
+
     if (typeof window === 'undefined') {
       return;
     }
