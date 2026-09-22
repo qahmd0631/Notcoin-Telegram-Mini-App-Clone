@@ -24,7 +24,6 @@ declare global {
       WebApp?: {
         ready?: () => void;
         expand?: () => void;
-        sendData?: (data: string) => void;
         initDataUnsafe?: {
           user?: TelegramUser;
           start_param?: string;
@@ -148,20 +147,36 @@ const App = () => {
     setMinedThisSession(nextPendingRewards);
   };
 
-  const handleFloatingAction = () => {
-    const webApp = window.Telegram?.WebApp;
-    if (webApp) {
-      webApp.expand?.();
-      const payload = JSON.stringify({
-        type: 'floating_action',
-        action: 'quick_trigger',
-        userId: telegramId ?? getTelegramContext().realUserId ?? null,
-      });
-      webApp.sendData?.(payload);
+  const initAppState = async (userId: string | null) => {
+    if (!userId) {
+      return;
     }
 
-    setToastMessage('Quick action sent');
-    window.setTimeout(() => setToastMessage(null), 1800);
+    const { data, error } = await supabase.rpc('get_master_app_state', {
+      p_user_id: String(userId),
+    });
+
+    if (!data || error) {
+      console.warn('[Root State] get_master_app_state failed:', error ?? 'no data');
+      await syncDailyAdCount(userId);
+      await syncMiningState(userId);
+      return;
+    }
+
+    const nextAdCount = Number(data.ad_count ?? data.daily_count ?? 0);
+    const nextLocked = Boolean(data.is_ad_locked ?? nextAdCount >= 10);
+    const nextBalance = Number(data.balance ?? data.points ?? 0);
+    const nextMiningRate = Number(data.mining_rate ?? 0.0001);
+    const nextPendingRewards = Number(data.pending_rewards ?? 0);
+
+    setAdCount(nextAdCount);
+    setAdWatchCount(nextAdCount);
+    setIsAdLocked(nextLocked);
+    setBalance(nextBalance);
+    setPoints(nextBalance);
+    setMiningRate(nextMiningRate);
+    setPendingMiningRewards(nextPendingRewards);
+    setMinedThisSession(nextPendingRewards);
   };
 
   const isAdLimitLocked = (count: number, lastDate: string | null) => {
@@ -1180,7 +1195,7 @@ const App = () => {
         }
       }
 
-      await syncAppState(realUserId);
+      await initAppState(realUserId);
       await syncDailyAdCount(realUserId);
       await syncReferralStats(realUserId);
     };
@@ -1725,19 +1740,6 @@ const App = () => {
         {activeTab === 'friends' && renderFriendsView()}
         {activeTab === 'profile' && renderProfileView()}
       </div>
-
-      <button
-        type="button"
-        aria-label="Quick action"
-        className="gold-fab"
-        onClick={handleFloatingAction}
-      >
-        <span className="gold-fab__triangle" aria-hidden="true">
-          <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
-            <polygon points="60,22 98,92 22,92" fill="#222" />
-          </svg>
-        </span>
-      </button>
 
       <div className="fixed bottom-0 left-0 right-0 z-[1000] border-t border-[#e5c158]/15 bg-[#101317]/95 px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md">
         <div className="grid grid-cols-5 gap-1 text-center text-[10px] font-medium">
