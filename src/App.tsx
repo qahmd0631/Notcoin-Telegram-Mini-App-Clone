@@ -9,6 +9,15 @@ type TelegramUser = {
   first_name?: string;
 };
 
+type ReferralRecord = {
+  id?: string;
+  referrer_id?: string | number | null;
+  referred_id?: string | number | null;
+  reward_amount?: number | string | null;
+  claimed?: boolean | null;
+  reward_claimed?: boolean | null;
+};
+
 declare global {
   interface Window {
     Telegram?: {
@@ -17,6 +26,7 @@ declare global {
         expand?: () => void;
         initDataUnsafe?: {
           user?: TelegramUser;
+          start_param?: string;
         };
       };
     };
@@ -26,7 +36,7 @@ declare global {
 const App = () => {
   const [points, setPoints] = useState(0);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'friends' | 'profile'>('home');
-  const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
+  const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?startapp=ref_12345678');
   const [copied, setCopied] = useState(false);
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
@@ -34,9 +44,57 @@ const App = () => {
   const [isMining, setIsMining] = useState(true);
   const [minedThisSession, setMinedThisSession] = useState(0);
   const [bonusMinutes, setBonusMinutes] = useState(0);
+  const [claimingRewards, setClaimingRewards] = useState(false);
+  const [referralStats, setReferralStats] = useState({ totalReferrals: 0, unclaimedRewards: 0, pending: [] as ReferralRecord[] });
   const miningLastUpdatedRef = useRef<number | null>(null);
 
   const miningRate = 0.0001;
+  const normalizePoints = (val: number | string | null | undefined) => {
+    const parsed = Number.parseFloat(String(val ?? 0));
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(4)) : 0;
+  };
+  const getTelegramContext = () => {
+    const webApp = window.Telegram?.WebApp;
+    const tgUser = webApp?.initDataUnsafe?.user ?? null;
+    const realUserId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
+    return { webApp, tgUser, realUserId };
+  };
+  const getReferrerIdFromStartParam = () => {
+    const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+    if (typeof startParam !== 'string' || !startParam.startsWith('ref_')) {
+      return null;
+    }
+    return startParam.replace(/^ref_/, '');
+  };
+  const syncReferralStats = async (userId: string | null) => {
+    if (!userId) {
+      setReferralStats({ totalReferrals: 0, unclaimedRewards: 0, pending: [] });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('referrals')
+      .select('*')
+      .eq('referrer_id', userId);
+
+    if (error) {
+      console.warn('[Referral] Failed to load referral stats:', error);
+      return;
+    }
+
+    const rows = Array.isArray(data) ? data as ReferralRecord[] : [];
+    const pending = rows.filter((row) => {
+      const claimed = row.claimed ?? row.reward_claimed ?? false;
+      return !claimed;
+    });
+    const unclaimedRewards = pending.reduce((sum, row) => sum + normalizePoints(row.reward_amount ?? 10), 0);
+
+    setReferralStats({
+      totalReferrals: rows.length,
+      unclaimedRewards: Number(unclaimedRewards.toFixed(4)),
+      pending,
+    });
+  };
   const holdingBalance = Number.isFinite(points * 0.75) ? Number((points * 0.75).toFixed(4)) : 0;
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
@@ -161,7 +219,7 @@ const App = () => {
   };
 
   const handleInviteFriend = () => {
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}`;
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join AURA GEN and get 10 free AGEN tokens!')}`;
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
@@ -173,6 +231,83 @@ const App = () => {
     } catch (error) {
       console.error('Unable to copy referral link:', error);
     }
+  };
+
+  const handleClaimReferralRewards = async () => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+    if (!currentUserId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to claim referral rewards.');
+      return;
+    }
+
+    setClaimingRewards(true);
+
+    const { data, error } = await supabase
+      .from('referrals')
+      .select('*')
+      .eq('referrer_id', currentUserId);
+
+    if (error) {
+      console.error('[Referral] Claim lookup failed:', error);
+      setClaimingRewards(false);
+      return;
+    }
+
+    const pendingRows = Array.isArray(data) ? (data as ReferralRecord[]).filter((row) => !(row.claimed ?? row.reward_claimed ?? false)) : [];
+    const rewardTotal = pendingRows.reduce((sum, row) => sum + normalizePoints(row.reward_amount ?? 10), 0);
+
+    if (!pendingRows.length || rewardTotal <= 0) {
+      setClaimingRewards(false);
+      await syncReferralStats(currentUserId);
+      return;
+    }
+
+    const { data: userRow, error: userError } = await supabase
+      .from('users')
+      .select('points')
+      .eq('telegram_id', currentUserId)
+      .maybeSingle();
+
+    if (userError && userError.code !== 'PGRST116') {
+      console.error('[Referral] Failed to load reward user:', userError);
+      setClaimingRewards(false);
+      return;
+    }
+
+    const currentBalance = normalizePoints(userRow?.points ?? points);
+    const nextBalance = Number((currentBalance + rewardTotal).toFixed(4));
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ points: nextBalance })
+      .eq('telegram_id', currentUserId);
+
+    if (updateError) {
+      console.error('[Referral] Reward claim update failed:', updateError);
+      setTelegramWarning('Referral reward claim failed. Please try again.');
+      setClaimingRewards(false);
+      return;
+    }
+
+    for (const row of pendingRows) {
+      if (!row.id) {
+        continue;
+      }
+
+      const { error: markError } = await supabase
+        .from('referrals')
+        .update({ claimed: true, reward_claimed: true })
+        .eq('id', row.id);
+
+      if (markError) {
+        console.warn('[Referral] Could not mark referral as claimed:', markError);
+      }
+    }
+
+    setPoints(nextBalance);
+    setTelegramWarning(null);
+    await syncReferralStats(currentUserId);
+    setClaimingRewards(false);
   };
 
   useEffect(() => {
@@ -189,23 +324,23 @@ const App = () => {
       webApp.expand();
     }
 
-    const tgUser = webApp?.initDataUnsafe?.user ?? null;
-    const realUserId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
+    const { tgUser, realUserId } = getTelegramContext();
     const realUsername = tgUser?.username || tgUser?.first_name || 'Telegram User';
+    const referrerId = getReferrerIdFromStartParam();
 
     setTelegramUser(tgUser ?? null);
     setTelegramId(realUserId);
 
     if (!realUserId) {
       setTelegramWarning('Please open this mini-app inside Telegram to save your balance.');
-      setReferralLink('https://t.me/Copmujbot/Gop?startapp=ref_12345678');
+      setReferralLink('https://t.me/AURA_AGENBOT?startapp=ref_12345678');
       setPoints(0);
       return;
     }
 
     setTelegramWarning(null);
 
-    const nextLink = `https://t.me/Copmujbot/Gop?startapp=ref_${realUserId}`;
+    const nextLink = `https://t.me/AURA_AGENBOT?startapp=ref_${realUserId}`;
     setReferralLink(nextLink);
 
     const loadUserPoints = async () => {
@@ -221,29 +356,106 @@ const App = () => {
       }
 
       if (!data) {
-        const { error: insertError } = await supabase
+        const { data: insertedUser, error: insertError } = await supabase
           .from('users')
           .insert([
             {
               telegram_id: realUserId,
               username: realUsername,
               points: 0,
+              referred_by: referrerId ?? null,
             },
-          ]);
+          ])
+          .select('*')
+          .single();
 
         if (insertError) {
           console.error('Error inserting new user:', insertError);
           return;
         }
 
-        console.log('[Supabase] New user created with zero balance', { realUserId, realUsername });
+        console.log('[Supabase] New user created with zero balance', {
+          realUserId,
+          realUsername,
+          referrerId,
+          insertedUser,
+        });
         setPoints(0);
-        return;
+      } else {
+        const savedPoints = Number(data.points ?? 0);
+        console.log('[Supabase] Loaded saved user balance', { realUserId, realUsername, savedPoints });
+        setPoints(savedPoints);
+
+        if (!data.referred_by && referrerId) {
+          await supabase
+            .from('users')
+            .update({ referred_by: referrerId })
+            .eq('telegram_id', realUserId);
+        }
       }
 
-      const savedPoints = Number(data.points ?? 0);
-      console.log('[Supabase] Loaded saved user balance', { realUserId, realUsername, savedPoints });
-      setPoints(savedPoints);
+      if (referrerId && referrerId !== realUserId) {
+        const { data: existingReferral, error: referralCheckError } = await supabase
+          .from('referrals')
+          .select('id')
+          .eq('referred_id', realUserId)
+          .maybeSingle();
+
+        if (referralCheckError && referralCheckError.code !== 'PGRST116') {
+          console.error('[Referral] Lookup failed:', referralCheckError);
+          return;
+        }
+
+        if (!existingReferral) {
+          const { error: referralInsertError } = await supabase
+            .from('referrals')
+            .insert([
+              {
+                referrer_id: referrerId,
+                referred_id: realUserId,
+                reward_amount: 10,
+                claimed: false,
+              },
+            ]);
+
+          if (referralInsertError) {
+            console.error('[Referral] Insert failed:', referralInsertError);
+            return;
+          }
+
+          const { data: referrerUser, error: referrerLoadError } = await supabase
+            .from('users')
+            .select('points')
+            .eq('telegram_id', referrerId)
+            .maybeSingle();
+
+          if (referrerLoadError && referrerLoadError.code !== 'PGRST116') {
+            console.error('[Referral] Referrer fetch failed:', referrerLoadError);
+            return;
+          }
+
+          const referrerBalance = normalizePoints(referrerUser?.points ?? 0);
+          const nextReferrerBalance = Number((referrerBalance + 10).toFixed(4));
+
+          const { error: referrerUpdateError } = await supabase
+            .from('users')
+            .update({ points: nextReferrerBalance })
+            .eq('telegram_id', referrerId);
+
+          if (referrerUpdateError) {
+            console.error('[Referral] Referrer reward update failed:', referrerUpdateError);
+          } else {
+            console.log('[Referral] Referrer reward added', {
+              referrerId,
+              referredId: realUserId,
+              rewardAmount: 10,
+              nextReferrerBalance,
+            });
+          }
+        }
+      }
+
+      await syncReferralStats(realUserId);
     };
 
     loadUserPoints();
@@ -416,13 +628,25 @@ const App = () => {
         <p className="text-[10px] uppercase tracking-[0.22em] text-[#442d03]">Referral Program</p>
         <h1 className="mt-2 text-3xl font-black text-[#1b1412]">Frens</h1>
         <div className="mt-4 rounded-2xl bg-[#fff5d5] p-4 text-center text-base font-semibold text-[#2f2b21]">
-          Get 10,000 AGEN points for each friend invited!
+          Get 10 AGEN points for each friend invited!
         </div>
       </div>
 
       <div className="rounded-[28px] border border-[#f7d780]/20 bg-[#171a20] p-4 text-white shadow-[0_20px_40px_rgba(0,0,0,0.25)]">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Referral link</p>
-        <div className="mt-3 rounded-2xl bg-white/5 p-3 text-xs break-all text-white/80">{referralLink}</div>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Your Invite Link</p>
+        <div className="mt-3 flex gap-2">
+          <input
+            readOnly
+            value={referralLink}
+            className="min-w-0 flex-1 rounded-2xl border border-[#f7d780]/20 bg-white/5 px-3 py-3 text-xs text-white/80 outline-none"
+          />
+          <button
+            className="rounded-full bg-[#fff3be] px-4 py-3 text-sm font-bold text-[#1f2530]"
+            onClick={handleCopyLink}
+          >
+            {copied ? 'Copied!' : 'Copy Link'}
+          </button>
+        </div>
 
         <div className="mt-4 flex gap-2">
           <button
@@ -431,13 +655,26 @@ const App = () => {
           >
             Invite a Friend
           </button>
-          <button
-            className="flex-1 rounded-full bg-[#fff3be] px-4 py-3 text-sm font-bold text-[#1f2530]"
-            onClick={handleCopyLink}
-          >
-            {copied ? 'Copied!' : 'Copy Link'}
-          </button>
         </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-[#1d2128] p-3 text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Total Referrals</p>
+            <div className="mt-2 text-2xl font-black text-white">{referralStats.totalReferrals}</div>
+          </div>
+          <div className="rounded-2xl bg-[#1d2128] p-3 text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Unclaimed Rewards</p>
+            <div className="mt-2 text-2xl font-black text-[#f9e6ad]">{referralStats.unclaimedRewards.toLocaleString()} AGEN</div>
+          </div>
+        </div>
+
+        <button
+          className="mt-4 w-full rounded-full bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-4 py-3 text-sm font-black uppercase tracking-[0.16em] text-[#16130b] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={handleClaimReferralRewards}
+          disabled={claimingRewards || referralStats.unclaimedRewards <= 0}
+        >
+          {claimingRewards ? 'Claiming...' : 'Claim Rewards'}
+        </button>
       </div>
     </div>
   );
