@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import './index.css';
 import Arrow from './icons/Arrow';
 import { agenMark, bear, highVoltage, rocket, trophy } from './images';
+import { supabase } from './supabase';
 
 const App = () => {
   const [points, setPoints] = useState(0);
@@ -10,6 +11,7 @@ const App = () => {
   const [showFrens, setShowFrens] = useState(false);
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
+  const [telegramUserId, setTelegramUserId] = useState<number | null>(null);
   const pointsToAdd = 12;
   const energyToReduce = 12;
 
@@ -21,9 +23,9 @@ const App = () => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    setPoints(points + pointsToAdd);
-    setEnergy(energy - energyToReduce < 0 ? 0 : energy - energyToReduce);
-    setClicks([...clicks, { id: Date.now(), x, y }]);
+    setPoints((prevPoints) => prevPoints + pointsToAdd);
+    setEnergy((prevEnergy) => (prevEnergy - energyToReduce < 0 ? 0 : prevEnergy - energyToReduce));
+    setClicks((prevClicks) => [...prevClicks, { id: Date.now(), x, y }]);
   };
 
   const handleAnimationEnd = (id: number) => {
@@ -54,14 +56,72 @@ const App = () => {
       return;
     }
 
-    const telegramUserId = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    const userId = telegramUserId ?? 'guest';
-    const nextLink = userId === 'guest'
+    const userId = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    const telegramId = typeof userId === 'number' ? userId : null;
+    setTelegramUserId(telegramId);
+
+    const nextLink = telegramId == null
       ? 'https://t.me/Copmujbot/Gop'
-      : `https://t.me/Copmujbot/Gop?startapp=ref_${userId}`;
+      : `https://t.me/Copmujbot/Gop?startapp=ref_${telegramId}`;
 
     setReferralLink(nextLink);
+
+    if (telegramId == null) {
+      return;
+    }
+
+    const loadUserPoints = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('points')
+        .eq('telegram_id', telegramId)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching user points:', error);
+        return;
+      }
+
+      if (!data) {
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert([{ telegram_id: telegramId, points: 0 }]);
+
+        if (insertError) {
+          console.error('Error inserting new user:', insertError);
+          return;
+        }
+
+        setPoints(0);
+        return;
+      }
+
+      setPoints(Number(data.points ?? 0));
+    };
+
+    loadUserPoints();
   }, []);
+
+  useEffect(() => {
+    if (telegramUserId == null) {
+      return;
+    }
+
+    const syncPoints = async () => {
+      const { error } = await supabase
+        .from('users')
+        .upsert(
+          { telegram_id: telegramUserId, points },
+          { onConflict: 'telegram_id' }
+        );
+
+      if (error) {
+        console.error('Error syncing user points:', error);
+      }
+    };
+
+    syncPoints();
+  }, [points, telegramUserId]);
 
   // useEffect hook to restore energy over time
   useEffect(() => {
