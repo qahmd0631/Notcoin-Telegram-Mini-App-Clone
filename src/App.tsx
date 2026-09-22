@@ -49,6 +49,11 @@ const App = () => {
   const [referralStats, setReferralStats] = useState({ totalReferrals: 0, unclaimedRewards: 0, pending: [] as ReferralRecord[] });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [adWatchCount, setAdWatchCount] = useState(0);
+  const [taskStatus, setTaskStatus] = useState<Record<string, { opened: boolean; completed: boolean; claimed: boolean }>>({
+    watch_ad: { opened: false, completed: false, claimed: false },
+    join_channel_1: { opened: false, completed: false, claimed: false },
+  });
   const userFriendlyAddress = useTonAddress();
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
@@ -309,6 +314,124 @@ const App = () => {
         });
     }
   }, [telegramId, userFriendlyAddress]);
+
+  const persistUserTaskStatus = async (taskId: string, payload: { completed: boolean; claimed: boolean; progress: number }) => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+    if (!currentUserId) {
+      console.warn('[Tasks] Missing Telegram ID while saving task status:', taskId);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('user_tasks')
+      .upsert(
+        {
+          telegram_id: Number(currentUserId),
+          task_id: taskId,
+          completed: payload.completed,
+          claimed: payload.claimed,
+          progress: payload.progress,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'telegram_id,task_id' }
+      );
+
+    if (error) {
+      console.warn('[Tasks] Failed to save task status:', taskId, error);
+    }
+  };
+
+  const handleWatchAdTask = async () => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+    if (!currentUserId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to watch ads and earn rewards.');
+      return;
+    }
+
+    if (adWatchCount >= 10) {
+      return;
+    }
+
+    const nextCount = Math.min(adWatchCount + 1, 10);
+    const reward = 5;
+    const nextPoints = Number((points + reward).toFixed(4));
+
+    setAdWatchCount(nextCount);
+    setPoints(nextPoints);
+
+    try {
+      const { error } = await supabase.rpc('watch_ad_reward', {
+        p_user_id: Number(currentUserId),
+      });
+      if (error) {
+        console.warn('[Tasks] watch_ad_reward RPC failed, using fallback:', error);
+      }
+    } catch (error) {
+      console.warn('[Tasks] watch_ad_reward RPC threw, using fallback:', error);
+    }
+
+    await persistUserTaskStatus('watch_ad', {
+      completed: nextCount >= 10,
+      claimed: nextCount >= 10,
+      progress: nextCount,
+    });
+
+    setTaskStatus((prev) => ({
+      ...prev,
+      watch_ad: {
+        opened: true,
+        completed: nextCount >= 10,
+        claimed: nextCount >= 10,
+      },
+    }));
+
+    setToastMessage(nextCount >= 10 ? 'Daily ad task complete!' : 'Ad reward added!');
+    setTimeout(() => setToastMessage(null), 2200);
+    await persistUserBalance(nextPoints, 'task_watch_ad', currentUserId);
+  };
+
+  const handleChannelTaskAction = async (taskId: string) => {
+    const currentUserId = telegramId ?? getTelegramContext().realUserId;
+    if (!currentUserId) {
+      setTelegramWarning('Please open this mini-app inside Telegram to claim channel rewards.');
+      return;
+    }
+
+    const currentState = taskStatus[taskId] ?? { opened: false, completed: false, claimed: false };
+
+    if (!currentState.opened) {
+      window.open('https://t.me/AURA_AGENBOT', '_blank', 'noopener,noreferrer');
+      setTaskStatus((prev) => ({
+        ...prev,
+        [taskId]: { ...prev[taskId], opened: true, completed: false, claimed: false },
+      }));
+      return;
+    }
+
+    if (currentState.claimed || currentState.completed) {
+      return;
+    }
+
+    const reward = 1;
+    const nextPoints = Number((points + reward).toFixed(4));
+    setPoints(nextPoints);
+
+    const taskRecord = { telegram_id: Number(currentUserId), task_id: taskId, completed: true, claimed: true, progress: 1, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('user_tasks').upsert(taskRecord, { onConflict: 'telegram_id,task_id' });
+
+    if (error) {
+      console.warn('[Tasks] Failed to mark channel task complete:', error);
+    }
+
+    setTaskStatus((prev) => ({
+      ...prev,
+      [taskId]: { opened: true, completed: true, claimed: true },
+    }));
+
+    setToastMessage('Channel task rewarded!');
+    setTimeout(() => setToastMessage(null), 2200);
+    await persistUserBalance(nextPoints, 'task_channel_reward', currentUserId);
+  };
 
   const handleMiningAction = async () => {
     const pendingReward = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
@@ -677,9 +800,28 @@ const App = () => {
     </div>
   );
 
+  const tasks = [
+    {
+      id: 'watch_ad',
+      title: 'Watch Ad & Earn',
+      reward: '+5 AGEN',
+      icon: '🎬',
+      type: 'ad',
+      max_daily: 10,
+    },
+    {
+      id: 'join_channel_1',
+      title: 'Join Official Telegram Channel',
+      reward: '+1 AGEN',
+      icon: '📢',
+      link: 'https://t.me/AURA_AGENBOT',
+      type: 'social',
+    },
+  ];
+
   const renderTasksView = () => (
     <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Task Board</p>
           <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Tasks</h1>
@@ -687,18 +829,59 @@ const App = () => {
       </div>
 
       <div className="space-y-4">
-        {[1, 2, 3].map((task) => (
-          <div key={task} className="rounded-[24px] border border-[#f7d780]/20 bg-[#181b21]/80 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-[#f8d77a]">Campaign</p>
-                <h2 className="mt-2 text-lg font-bold text-white">Daily Mission {task}</h2>
+        {tasks.map((task) => {
+          const status = taskStatus[task.id] ?? { opened: false, completed: false, claimed: false };
+          const isCompleted = task.type === 'ad' ? adWatchCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
+          const buttonLabel = task.type === 'ad'
+            ? isCompleted
+              ? 'Completed'
+              : 'Watch'
+            : status.claimed || status.completed
+              ? 'Completed'
+              : status.opened
+                ? 'Claim'
+                : 'Go';
+
+          return (
+            <div key={task.id} className="rounded-[28px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_34px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f4c75b]/15 text-2xl shadow-[0_0_16px_rgba(244,199,91,0.25)]">
+                    {task.icon}
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Mission</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
+                    {task.type === 'ad' && (
+                      <p className="mt-2 text-xs text-white/70">Watched: {adWatchCount}/{task.max_daily}</p>
+                    )}
+                  </div>
+                </div>
+                <span className="rounded-full bg-[#f4c75b]/15 px-2.5 py-1 text-xs font-bold text-[#f8d77a]">{task.reward}</span>
               </div>
-              <span className="rounded-full bg-[#f4c75b]/15 px-2.5 py-1 text-xs font-bold text-[#f8d77a]">+{task * 250} AGEN</span>
+
+              <div className="mt-4 flex items-center justify-end">
+                <button
+                  className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.16em] transition-all ${
+                    isCompleted
+                      ? 'bg-[#1d2128] text-[#d8dbe0]'
+                      : 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
+                  }`}
+                  onClick={() => {
+                    if (task.type === 'ad') {
+                      void handleWatchAdTask();
+                    } else {
+                      void handleChannelTaskAction(task.id);
+                    }
+                  }}
+                  disabled={isCompleted}
+                >
+                  {buttonLabel}
+                </button>
+              </div>
             </div>
-            <p className="mt-3 text-sm text-white/70">Complete the action and earn more AGEN while the bot keeps mining in the background.</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
