@@ -38,38 +38,64 @@ const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; cl
   <svg
     width={size}
     height={size}
-    viewBox="0 0 200 200"
+    viewBox="0 0 220 220"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
     aria-label="AURA GEN logo"
     role="img"
-    style={{ filter: 'drop-shadow(0 0 12px rgba(251, 201, 80, 0.9)) drop-shadow(0 0 24px rgba(255, 181, 63, 0.88))' }}
+    style={{ filter: 'drop-shadow(0 0 14px rgba(245, 198, 74, 0.8)) drop-shadow(0 0 28px rgba(200, 148, 38, 0.75))' }}
   >
     <defs>
-      <linearGradient id="hollowGoldStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#FFF2A8" />
-        <stop offset="28%" stopColor="#FFD95F" />
-        <stop offset="52%" stopColor="#D4AF37" />
-        <stop offset="76%" stopColor="#B8850B" />
-        <stop offset="100%" stopColor="#FFE59A" />
+      <linearGradient id="goldPlate" x1="30" y1="20" x2="190" y2="190" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#fff4c1" />
+        <stop offset="0.18" stopColor="#f6d46d" />
+        <stop offset="0.44" stopColor="#d9a933" />
+        <stop offset="0.68" stopColor="#a76e12" />
+        <stop offset="1" stopColor="#fbe9a6" />
       </linearGradient>
-      <filter id="hollowGlow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="1.8" result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
+      <radialGradient id="goldInner" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(82 62) rotate(44) scale(130 120)">
+        <stop offset="0" stopColor="#fff8d8" />
+        <stop offset="0.2" stopColor="#f8d56a" />
+        <stop offset="0.52" stopColor="#d7a53a" />
+        <stop offset="0.8" stopColor="#9d6717" />
+        <stop offset="1" stopColor="#f2d88e" />
+      </radialGradient>
+      <linearGradient id="ribbonGold" x1="34" y1="34" x2="176" y2="182" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#fff8d8" />
+        <stop offset="0.18" stopColor="#ffe79a" />
+        <stop offset="0.42" stopColor="#f4cc4f" />
+        <stop offset="0.65" stopColor="#c88717" />
+        <stop offset="1" stopColor="#fbe9a2" />
+      </linearGradient>
+      <linearGradient id="ribbonEdge" x1="62" y1="50" x2="151" y2="170" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stopColor="#ffefba" />
+        <stop offset="0.3" stopColor="#f9d974" />
+        <stop offset="0.7" stopColor="#b8750d" />
+        <stop offset="1" stopColor="#fff0a5" />
+      </linearGradient>
+      <filter id="luxuryGlow" x="-40%" y="-40%" width="180%" height="180%">
+        <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#f8d77a" floodOpacity="0.95" />
+        <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#8b5911" floodOpacity="0.38" />
       </filter>
     </defs>
 
-    <g stroke="url(#hollowGoldStroke)" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" fill="none" filter="url(#hollowGlow)">
-      <path d="M100 20 L170 150 L30 150 Z" />
-      <path d="M100 20 L100 150" opacity="0.95" />
-      <path d="M30 150 L100 110 L170 150" opacity="0.95" />
-      <path d="M52 125 C70 102 84 88 100 68 C116 88 130 102 148 125" opacity="0.92" />
-      <path d="M70 90 L100 52 L130 90" opacity="0.9" />
-      <path d="M72 140 C84 126 92 117 100 106 C108 117 116 126 128 140" opacity="0.85" />
+    <g filter="url(#luxuryGlow)">
+      <circle cx="110" cy="110" r="92" fill="url(#goldPlate)" />
+      <circle cx="110" cy="110" r="82" fill="url(#goldInner)" stroke="#fff4c2" strokeOpacity="0.65" strokeWidth="3" />
+      <circle cx="110" cy="110" r="74" fill="none" stroke="#8b5d12" strokeOpacity="0.68" strokeWidth="4" />
+      <circle cx="110" cy="110" r="66" fill="none" stroke="#fbe5a4" strokeOpacity="0.52" strokeWidth="2" />
+
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M110 39C142 39 171 57 180 87C189 116 180 152 153 174C127 196 90 199 62 181C35 163 24 128 34 96C45 63 75 39 110 39Z" stroke="url(#ribbonGold)" strokeWidth="13" opacity="0.96"/>
+        <path d="M110 54C136 54 159 69 167 94C175 120 165 150 143 167C121 183 93 184 72 170C51 155 42 128 48 102C55 75 78 54 110 54Z" stroke="url(#ribbonEdge)" strokeWidth="8" opacity="0.9"/>
+        <path d="M76 146C92 115 102 94 120 73C123 101 126 131 109 160C96 156 84 152 76 146Z" stroke="url(#ribbonGold)" strokeWidth="10"/>
+        <path d="M106 80C125 91 138 104 149 120C140 143 123 159 103 169C92 147 88 117 106 80Z" stroke="url(#ribbonGold)" strokeWidth="10"/>
+        <path d="M77 129C60 124 48 112 46 95C45 79 54 63 71 53C80 72 84 95 77 129Z" stroke="url(#ribbonGold)" strokeWidth="9"/>
+      </g>
+
+      <circle cx="110" cy="110" r="34" fill="none" stroke="#fef3c4" strokeOpacity="0.8" strokeWidth="3" />
+      <circle cx="110" cy="110" r="22" fill="none" stroke="#8b5d12" strokeOpacity="0.7" strokeWidth="3" />
     </g>
   </svg>
 );
