@@ -5,7 +5,6 @@ import { supabase } from './supabase';
 
 const App = () => {
   const [points, setPoints] = useState(0);
-  const [energy, setEnergy] = useState(0);
   const [showFrens, setShowFrens] = useState(false);
   const [referralLink, setReferralLink] = useState('https://t.me/Copmujbot/Gop');
   const [copied, setCopied] = useState(false);
@@ -14,9 +13,10 @@ const App = () => {
   const [isClaimReady, setIsClaimReady] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [minedThisSession, setMinedThisSession] = useState(0);
+  const [bonusMinutes, setBonusMinutes] = useState(0);
 
   const miningRate = 0.0008;
-  const miningDuration = 20;
+  const miningDuration = 300;
   const holdingBalance = Number((points * 0.75).toFixed(4));
   const poolBalance = Number((points * 0.25).toFixed(4));
 
@@ -37,6 +37,17 @@ const App = () => {
       setIsClaimReady(false);
       setIsMining(false);
     }
+  };
+
+  const handleWatchAd = () => {
+    if (!isMining) {
+      setSessionSeconds(0);
+      setMinedThisSession(0);
+      setIsMining(true);
+      setIsClaimReady(false);
+    }
+
+    setBonusMinutes((prevBonus) => prevBonus + 5);
   };
 
   const handleInviteFriend = () => {
@@ -148,11 +159,12 @@ const App = () => {
       setMinedThisSession((prevValue) => Number((prevValue + miningRate).toFixed(4)));
       setSessionSeconds((prevSeconds) => {
         const nextSeconds = prevSeconds + 1;
+        const maximumDuration = miningDuration + bonusMinutes * 60;
 
-        if (nextSeconds >= miningDuration) {
+        if (nextSeconds >= maximumDuration) {
           setIsMining(false);
           setIsClaimReady(true);
-          return miningDuration;
+          return maximumDuration;
         }
 
         return nextSeconds;
@@ -160,24 +172,16 @@ const App = () => {
     }, 1000);
 
     return () => window.clearInterval(miningInterval);
-  }, [isMining]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setEnergy((prevEnergy) => Math.min(prevEnergy + 1, 6500));
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, []);
+  }, [isMining, bonusMinutes]);
 
   return (
-    <div className="bg-gradient-main min-h-screen px-4 flex flex-col items-center text-white font-medium pb-28">
+    <div className="bg-gradient-main h-screen overflow-hidden touch-none px-4 flex flex-col items-center text-white font-medium pb-28">
       <div className="absolute inset-0 h-1/2 bg-gradient-overlay z-0"></div>
       <div className="absolute inset-0 flex items-center justify-center z-0">
         <div className="radial-gradient-overlay"></div>
       </div>
 
-      <div className="w-full z-10 min-h-screen flex flex-col items-center text-white">
+      <div className="w-full z-10 h-screen flex flex-col items-center text-white overflow-hidden">
         <div className="fixed top-0 left-0 w-full px-4 pt-6 z-10 text-white">
           <div className="flex items-center justify-between">
             <div className="rounded-full bg-[#1a1d24]/80 px-3 py-2 text-xs font-semibold tracking-[0.18em] text-[#f9d77c] uppercase shadow-lg shadow-black/20 backdrop-blur-sm">
@@ -232,12 +236,18 @@ const App = () => {
               </div>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-6 flex flex-col gap-3">
               <button
                 className="w-full rounded-2xl bg-gradient-to-r from-[#f7cd69] via-[#f7bf4a] to-[#ffebae] px-5 py-4 text-lg font-black tracking-[0.18em] text-[#1b1412] shadow-[0_12px_30px_rgba(247,191,74,0.35)] transition-transform active:scale-[0.99]"
                 onClick={handleMiningAction}
               >
                 {isMining ? 'MINING…' : isClaimReady ? 'CLAIM' : 'START'}
+              </button>
+              <button
+                className="w-full rounded-2xl border border-[#f7d780]/40 bg-[#1f2127] px-4 py-3 text-sm font-bold uppercase tracking-[0.14em] text-[#f5d58f]"
+                onClick={handleWatchAd}
+              >
+                Watch Ad (+5 Mins)
               </button>
             </div>
           </div>
@@ -269,9 +279,6 @@ const App = () => {
               </svg>
               <span>Profile</span>
             </button>
-          </div>
-          <div className="mt-3 w-full rounded-full bg-[#f9c035]">
-            <div className="h-4 rounded-full bg-gradient-to-r from-[#f3c45a] to-[#fffad0]" style={{ width: `${(energy / 6500) * 100}%` }}></div>
           </div>
         </div>
 
