@@ -119,8 +119,8 @@ const App = () => {
   const [currentMiningLevel, setCurrentMiningLevel] = useState(1);
   const [currentMiningSpeed, setCurrentMiningSpeed] = useState(getMiningRateForLevel(1));
   const [loginBaseBalance, setLoginBaseBalance] = useState(0);
-  const [liveMiningDisplay, setLiveMiningDisplay] = useState(0);
-  const [pendingMiningRewards, setPendingMiningRewards] = useState(0);
+  const [liveMiningValue, setLiveMiningValue] = useState(0);
+  const [, setPendingMiningRewards] = useState(0);
   const [taskStatus, setTaskStatus] = useState<Record<string, { opened: boolean; completed: boolean; claimed: boolean }>>({
     watch_ad: { opened: false, completed: false, claimed: false },
     join_channel_1: { opened: false, completed: false, claimed: false },
@@ -174,12 +174,39 @@ const App = () => {
     setPoints(nextBalance);
     setPendingMiningRewards(nextMinedAmount);
     setMinedThisSession(nextMinedAmount);
-    setLiveMiningDisplay(nextBalance);
     loginLastAnchorRef.current = Date.now();
   };
 
   const syncUserLoginState = async (userId: string | null) => {
     await syncUserLevelMining(userId);
+    await syncLiveMiningState(userId);
+  };
+
+  const syncLiveMiningState = async (userId: string | null) => {
+    if (!userId) {
+      return;
+    }
+
+    const { data, error } = await supabase.rpc('get_live_mining_state', {
+      p_user_id: String(userId),
+    });
+
+    if (error || !data) {
+      console.warn('[Live Mining] get_live_mining_state failed:', error ?? 'no data');
+      return;
+    }
+
+    const nextPendingRewards = Number(data.pending_rewards ?? data.pending ?? 0);
+    const nextMiningRate = Number(data.mining_rate ?? data.current_speed ?? data.rate ?? miningRate ?? getMiningRateForLevel(currentMiningLevel || 1));
+    const nextLevel = Number(data.miner_level ?? data.level ?? data.user_level ?? currentMiningLevel ?? 1);
+
+    setLiveMiningValue(nextPendingRewards);
+    setPendingMiningRewards(nextPendingRewards);
+    setMinedThisSession(nextPendingRewards);
+    setMiningRate(nextMiningRate);
+    setCurrentMiningSpeed(nextMiningRate);
+    setCurrentMiningLevel(nextLevel);
+    setLoginBaseBalance(Number(data.new_balance ?? data.balance ?? loginBaseBalance ?? 0));
   };
 
   const syncAppState = async (userId: string | null) => {
@@ -595,8 +622,6 @@ const App = () => {
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
   const displayedBalance = balance > 0 ? balance : points;
-  const deltaMiningRewards = Number(Math.max(0, liveMiningDisplay - loginBaseBalance).toFixed(4));
-  const miningCounterValue = Number(Math.max(deltaMiningRewards, pendingMiningRewards, safeMinedThisSession).toFixed(4));
 
   const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
     if (typeof window === 'undefined') {
@@ -1148,6 +1173,7 @@ const App = () => {
 
     const refreshAppState = () => {
       void syncUserLevelMining(telegramId);
+      void syncLiveMiningState(telegramId);
       void syncAppState(telegramId);
     };
 
@@ -1157,21 +1183,16 @@ const App = () => {
   }, [telegramId]);
 
   useEffect(() => {
-    if (!loginLastAnchorRef.current || miningRate <= 0) {
-      setLiveMiningDisplay(loginBaseBalance);
+    if (!telegramId) {
       return;
     }
 
-    const updateLiveCounter = () => {
-      const elapsedSeconds = (Date.now() - loginLastAnchorRef.current!) / 1000;
-      const nextValue = Number((loginBaseBalance + elapsedSeconds * (miningRate / 3600)).toFixed(4));
-      setLiveMiningDisplay(nextValue);
-    };
+    const liveCounterTimer = window.setInterval(() => {
+      setLiveMiningValue((prev) => Number((prev + miningRate / 3600).toFixed(4)));
+    }, 1000);
 
-    updateLiveCounter();
-    const liveCounterTimer = window.setInterval(updateLiveCounter, 1000);
     return () => window.clearInterval(liveCounterTimer);
-  }, [loginBaseBalance, miningRate, telegramId]);
+  }, [telegramId, miningRate]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1370,7 +1391,6 @@ const App = () => {
   ];
 
   const renderHomeView = () => {
-    const activeLevelMeta = getMiningLevelMeta(currentMiningLevel || currentLevel);
     return (
       <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
@@ -1388,22 +1408,13 @@ const App = () => {
         )}
 
         <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
-              <HollowGoldBrandLogo size={18} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.7)]" />
-              <div className="flex flex-col leading-none">
-                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl {currentMiningLevel || currentLevel} • {activeLevelMeta.badge}</span>
-                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#a7f6ca]">{currentMiningSpeed.toFixed(4)} AGEN/hr</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {walletAddress && (
-                <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
-                  {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-                </span>
-              )}
-              <TonConnectButton />
-            </div>
+          <div className="flex items-center justify-end gap-2">
+            {walletAddress && (
+              <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
+                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+              </span>
+            )}
+            <TonConnectButton />
           </div>
         </div>
 
@@ -1426,7 +1437,7 @@ const App = () => {
                 <span className="rounded-full border border-[#e5c158]/25 bg-[#f4c75b]/10 px-2 py-1 text-[8px] text-[#f8d77a]">Lvl {currentMiningLevel || currentLevel}</span>
               </div>
               <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
-                {`+${miningCounterValue.toFixed(4)} AGEN`}
+                {`+${liveMiningValue.toFixed(4)} AGEN`}
               </div>
               <div className="mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#f7d780]">
                 Speed: {currentMiningSpeed.toFixed(4)} AGEN/hr
@@ -1483,114 +1494,101 @@ const App = () => {
   };
 
   const renderMinersView = () => {
-    const activeLevelMeta = getMiningLevelMeta(currentMiningLevel || currentLevel);
     return (
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Miners</p>
-          <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
-        </div>
-        <div className="rounded-full border border-[#f7d780]/30 bg-[#f4c75b]/10 px-2.5 py-1.5 text-right">
-          <div className="text-[8px] uppercase tracking-[0.18em] text-[#f4d889]">Active Level</div>
-          <div className="text-xs font-black text-[#fff3c4]">Lv. {currentMiningLevel || currentLevel} • {activeLevelMeta.label}</div>
-          <div className="text-[9px] font-bold text-[#9ff7c3]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
-        </div>
-        <button
-          className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adLimitReached ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
-          onClick={() => void handleSpeedBoost()}
-          disabled={adLimitReached || speedBoostSecondsLeft > 0 || isAdLoading}
-        >
-          {speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adLimitReached ? 'LOCKED / Limit Reached' : '2x Boost'}
-        </button>
-      </div>
-
-      <div className="rounded-[30px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)] backdrop-blur-sm">
-        <div className="flex items-start justify-between gap-3">
+        <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Current Level</p>
-            <h2 className="mt-2 text-3xl font-black text-[#fff3c4]">Lv. {currentLevel}</h2>
-          </div>
-          <div className="rounded-full border border-[#8ef0b0]/35 bg-[#0d1c17]/80 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-[#a8ffd0]">
-            {currentLevel >= 8 ? 'Peak' : 'Mining'}
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Miners</p>
+            <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-2xl bg-[#11161b] p-3">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Today&apos;s P&amp;L</div>
-            <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max((currentMiningLevel || currentLevel) * 0.8, 2.4)).toFixed(1)}</div>
-          </div>
-          <div className="rounded-2xl bg-[#11161b] p-3">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
-            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-2xl bg-[#101419] p-3">
-          <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-[#d7bf73]">
-            <span>Performance</span>
-            <span>{Math.min((currentLevel / 36) * 100, 100).toFixed(0)}%</span>
-          </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#1f252d]">
-            <div className="h-full rounded-full bg-[linear-gradient(90deg,#f7d57a,#d4af37_35%,#f3d784_100%)]" style={{ width: `${Math.min((currentLevel / 36) * 100, 100)}%` }} />
-          </div>
-        </div>
-
-        {speedBoostSecondsLeft > 0 && (
-          <div className="mt-4 rounded-2xl border border-[#5ee7a9]/30 bg-[#0f1d1a]/80 px-3 py-2 text-xs font-bold text-[#9ff7c3]">
-            2x Speed Boost active: {speedBoostSecondsLeft}s remaining
-          </div>
-        )}
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        {minerLevels.map((entry) => {
-          const isUnlocked = currentLevel >= entry.level;
-          const isAffordable = points >= entry.price;
-          const statusText = isUnlocked
-            ? 'ACTIVE'
-            : isAffordable
-              ? 'NEED ' + entry.price + ' tokens to unlock'
-              : 'LOCKED';
-
-          return (
-            <div key={entry.level} className={`rounded-[26px] border p-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${isUnlocked ? 'border-[#f7d780]/40 bg-[#1b1c1f]' : 'border-[#f7d780]/15 bg-[#14181d]'}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Lvl</p>
-                  <h3 className="mt-1 text-xl font-black text-white">{entry.level}</h3>
-                </div>
-                <span className="rounded-full bg-[#f4c75b]/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
-                  {entry.speed}
-                </span>
-              </div>
-
-              <div className="mt-4 space-y-2 text-xs text-white/75">
-                <div className="flex items-center justify-between">
-                  <span>Price</span>
-                  <span className="font-bold text-[#f9e6ad]">{entry.price} tokens</span>
-                </div>
-              </div>
-
-              <button
-                className={`mt-4 w-full rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
-                  isUnlocked
-                    ? 'bg-[#1b3a2d] text-[#9ff7c3]'
-                    : isAffordable
-                      ? 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
-                      : 'bg-[#1d2128] text-[#d8dbe0]'
-                }`}
-                onClick={() => void handleMinerUpgrade(entry.level)}
-                disabled={!isAffordable && !isUnlocked}
-              >
-                {statusText}
-              </button>
+        <div className="rounded-[30px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Current Level</p>
+              <h2 className="mt-2 text-3xl font-black text-[#fff3c4]">Lv. {currentMiningLevel || currentLevel}</h2>
             </div>
-          );
-        })}
+            <div className="rounded-full border border-[#8ef0b0]/35 bg-[#0d1c17]/80 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-[#a8ffd0]">
+              {currentMiningLevel >= 8 ? 'Peak' : 'Mining'}
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-2xl bg-[#11161b] p-3">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Today&apos;s P&amp;L</div>
+              <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max((currentMiningLevel || currentLevel) * 0.8, 2.4)).toFixed(1)}</div>
+            </div>
+            <div className="rounded-2xl bg-[#11161b] p-3">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
+              <div className="mt-2 text-lg font-black text-[#f9e6ad]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl bg-[#101419] p-3">
+            <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-[#d7bf73]">
+              <span>Performance</span>
+              <span>{Math.min(((currentMiningLevel || currentLevel) / 36) * 100, 100).toFixed(0)}%</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#1f252d]">
+              <div className="h-full rounded-full bg-[linear-gradient(90deg,#f7d57a,#d4af37_35%,#f3d784_100%)]" style={{ width: `${Math.min(((currentMiningLevel || currentLevel) / 36) * 100, 100)}%` }} />
+            </div>
+          </div>
+
+          {speedBoostSecondsLeft > 0 && (
+            <div className="mt-4 rounded-2xl border border-[#5ee7a9]/30 bg-[#0f1d1a]/80 px-3 py-2 text-xs font-bold text-[#9ff7c3]">
+              2x Speed Boost active: {speedBoostSecondsLeft}s remaining
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          {minerLevels.map((entry) => {
+            const isUnlocked = (currentMiningLevel || currentLevel) >= entry.level;
+            const isAffordable = points >= entry.price;
+            const statusText = isUnlocked
+              ? 'ACTIVE'
+              : isAffordable
+                ? 'NEED ' + entry.price + ' tokens to unlock'
+                : 'LOCKED';
+
+            return (
+              <div key={entry.level} className={`rounded-[26px] border p-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${isUnlocked ? 'border-[#f7d780]/40 bg-[#1b1c1f]' : 'border-[#f7d780]/15 bg-[#14181d]'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Lvl</p>
+                    <h3 className="mt-1 text-xl font-black text-white">{entry.level}</h3>
+                  </div>
+                  <span className="rounded-full bg-[#f4c75b]/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
+                    {entry.speed}
+                  </span>
+                </div>
+
+                <div className="mt-4 space-y-2 text-xs text-white/75">
+                  <div className="flex items-center justify-between">
+                    <span>Price</span>
+                    <span className="font-bold text-[#f9e6ad]">{entry.price} tokens</span>
+                  </div>
+                </div>
+
+                <button
+                  className={`mt-4 w-full rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
+                    isUnlocked
+                      ? 'bg-[#1b3a2d] text-[#9ff7c3]'
+                      : isAffordable
+                        ? 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
+                        : 'bg-[#1d2128] text-[#d8dbe0]'
+                  }`}
+                  onClick={() => void handleMinerUpgrade(entry.level)}
+                  disabled={!isAffordable && !isUnlocked}
+                >
+                  {statusText}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
     );
   };
 
