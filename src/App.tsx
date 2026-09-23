@@ -622,6 +622,8 @@ const App = () => {
   const poolBalance = Number.isFinite(points * 0.25) ? Number((points * 0.25).toFixed(4)) : 0;
   const safeMinedThisSession = Number.isFinite(minedThisSession) ? Number(minedThisSession.toFixed(4)) : 0;
   const displayedBalance = balance > 0 ? balance : points;
+  const activeUserLevel = currentMiningLevel || currentLevel;
+  const adProgressText = isAdLocked || adCount >= 10 ? 'LIMIT REACHED (10/10)' : `${Math.min(adCount, 10)}/10 Watched`;
 
   const persistUserBalance = async (nextPoints: number, source: string, userId: string | null = null) => {
     if (typeof window === 'undefined') {
@@ -682,49 +684,51 @@ const App = () => {
     const currentUserId = telegramId ?? getTelegramContext().realUserId;
 
     if (!currentUserId) {
-      if (lastLinkedWalletRef.current) {
-        lastLinkedWalletRef.current = null;
-        setWalletAddress(null);
-      }
-      return;
-    }
-
-    if (userFriendlyAddress) {
-      if (lastLinkedWalletRef.current !== userFriendlyAddress) {
-        lastLinkedWalletRef.current = userFriendlyAddress;
-        setWalletAddress(userFriendlyAddress);
-
-        supabase
-          .from('users')
-          .update({ wallet_address: userFriendlyAddress })
-          .eq('telegram_id', currentUserId)
-          .then(({ error }) => {
-            if (error) {
-              console.error('[TON Wallet] Failed to save linked wallet:', error);
-              return;
-            }
-
-            setToastMessage('TON wallet connected and linked to your account.');
-            setTimeout(() => setToastMessage(null), 2600);
-          });
-      }
-      return;
-    }
-
-    if (lastLinkedWalletRef.current) {
       lastLinkedWalletRef.current = null;
       setWalletAddress(null);
-
-      supabase
-        .from('users')
-        .update({ wallet_address: null })
-        .eq('telegram_id', currentUserId)
-        .then(({ error }) => {
-          if (error) {
-            console.error('[TON Wallet] Failed to clear wallet link:', error);
-          }
-        });
+      return;
     }
+
+    const syncSavedWallet = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('wallet_address')
+        .eq('telegram_id', String(currentUserId))
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('[TON Wallet] Failed to load saved wallet:', error);
+        return;
+      }
+
+      const savedWallet = (data?.wallet_address as string | null) ?? null;
+      setWalletAddress(savedWallet);
+      lastLinkedWalletRef.current = savedWallet ?? null;
+    };
+
+    if (userFriendlyAddress) {
+      const normalizedAddress = userFriendlyAddress.trim();
+      if (lastLinkedWalletRef.current !== normalizedAddress) {
+        lastLinkedWalletRef.current = normalizedAddress;
+        setWalletAddress(normalizedAddress);
+
+        supabase.rpc('save_user_wallet', {
+          p_user_id: String(currentUserId),
+          p_wallet_address: normalizedAddress,
+        }).then(({ error }) => {
+          if (error) {
+            console.error('[TON Wallet] Failed to save linked wallet:', error);
+            return;
+          }
+
+          setToastMessage('TON wallet connected and linked to your account.');
+          setTimeout(() => setToastMessage(null), 2600);
+        });
+      }
+      return;
+    }
+
+    void syncSavedWallet();
   }, [telegramId, userFriendlyAddress]);
 
   const persistUserTaskStatus = async (taskId: string, payload: { completed: boolean; claimed: boolean; progress: number }) => {
@@ -1272,6 +1276,10 @@ const App = () => {
         const savedPoints = Number(data.points ?? 0);
         console.log('[Supabase] Loaded saved user balance', { realUserId, realUsername, savedPoints });
         setPoints(savedPoints);
+        setWalletAddress((data.wallet_address as string | null) ?? null);
+        if ((data.miner_level ?? data.level) !== undefined) {
+          setCurrentMiningLevel(Number(data.miner_level ?? data.level ?? 1));
+        }
 
         if (!data.referred_by && referrerId) {
           await supabase
@@ -1279,6 +1287,21 @@ const App = () => {
             .update({ referred_by: referrerId })
             .eq('telegram_id', realUserId);
         }
+      }
+
+      const { data: masterState, error: masterStateError } = await supabase.rpc('get_master_app_state', {
+        p_user_id: String(realUserId),
+      });
+
+      if (!masterStateError && masterState) {
+        const startupMiningRate = Number(masterState.mining_rate ?? masterState.current_speed ?? getMiningRateForLevel(currentMiningLevel || 1));
+        const startupPendingRewards = Number(masterState.pending_rewards ?? 0);
+        setMiningRate(startupMiningRate);
+        setCurrentMiningSpeed(startupMiningRate);
+        setLiveMiningValue(startupPendingRewards);
+        setAdCount(Number(masterState.ad_count ?? masterState.daily_count ?? 0));
+        setAdWatchCount(Number(masterState.ad_count ?? masterState.daily_count ?? 0));
+        setIsAdLocked(Boolean(masterState.is_ad_locked ?? Number(masterState.ad_count ?? masterState.daily_count ?? 0) >= 10));
       }
 
       await syncUserLoginState(realUserId);
@@ -1408,13 +1431,18 @@ const App = () => {
         )}
 
         <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
-          <div className="flex items-center justify-end gap-2">
-            {walletAddress && (
-              <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
-                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-              </span>
-            )}
-            <TonConnectButton />
+          <div className="flex items-center justify-between gap-2">
+            <div className="rounded-full border border-[#f7d780]/35 bg-[#1f1b13]/80 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.22em] text-[#f8d77a] shadow-[0_0_18px_rgba(229,193,88,0.15)]">
+              LVL {activeUserLevel}
+            </div>
+            <div className="flex items-center gap-2">
+              {walletAddress && (
+                <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
+                  {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                </span>
+              )}
+              <TonConnectButton />
+            </div>
           </div>
         </div>
 
@@ -1434,7 +1462,7 @@ const App = () => {
             <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
               <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">
                 <span>Live Counter</span>
-                <span className="rounded-full border border-[#e5c158]/25 bg-[#f4c75b]/10 px-2 py-1 text-[8px] text-[#f8d77a]">Lvl {currentMiningLevel || currentLevel}</span>
+                <span className="rounded-full border border-[#e5c158]/25 bg-[#f4c75b]/10 px-2 py-1 text-[8px] text-[#f8d77a]">Lvl {activeUserLevel}</span>
               </div>
               <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
                 {`+${liveMiningValue.toFixed(4)} AGEN`}
@@ -1478,11 +1506,11 @@ const App = () => {
                   onClick={handleWatchAd}
                   disabled={isAdLocked || adCount >= 10}
                 >
-                  {isAdLocked ? 'Daily Limit Reached (10/10) - Unlocks in 24h' : 'Watch Ad (+5 Mins)'}
+                  {isAdLocked || adCount >= 10 ? 'LIMIT REACHED (10/10)' : `WATCH AD (${Math.min(adCount, 10)}/10)`}
                 </button>
-                {isAdLocked && (
+                {(isAdLocked || adCount >= 10) && (
                   <div className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2.5 py-1.5 text-center text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
-                    Daily Limit Reached (10/10) - Unlocks in 24h
+                    {adProgressText}
                   </div>
                 )}
               </div>
@@ -1626,8 +1654,8 @@ const App = () => {
           const isCompleted = task.type === 'ad' ? adLimitReached || adCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
           const buttonLabel = task.type === 'ad'
             ? isCompleted
-              ? 'LOCKED'
-              : 'Watch'
+              ? 'LIMIT REACHED (10/10)'
+              : `WATCH (${Math.min(adCount, 10)}/10)`
             : status.claimed || status.completed
               ? 'Completed'
               : status.opened
@@ -1646,7 +1674,7 @@ const App = () => {
                     <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
                     {task.type === 'ad' && (
                       <p className="mt-2 text-xs text-white/70">
-                        {adLimitReached ? 'LOCKED / Limit Reached' : `Watched: ${adCount}/${task.max_daily}`}
+                        {isAdLocked || adCount >= 10 ? 'LIMIT REACHED (10/10)' : `Watched: ${Math.min(adCount, 10)}/${task.max_daily}`}
                       </p>
                     )}
                   </div>
