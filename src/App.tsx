@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { TonConnectButton, useTonAddress } from '@tonconnect/ui-react';
+import { TonConnectButton, useTonAddress, useTonWallet } from '@tonconnect/ui-react';
 import './index.css';
 import { supabase } from './supabase';
 
@@ -96,7 +96,7 @@ const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; cl
 const App = () => {
   const [points, setPoints] = useState(0);
   const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'miners' | 'friends' | 'profile'>('home');
-  const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?start=ref_12345678');
+  const [referralLink, setReferralLink] = useState('https://t.me/AURA_AGENBOT?start=ref');
   const [copied, setCopied] = useState(false);
   const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
@@ -126,6 +126,8 @@ const App = () => {
     join_channel_1: { opened: false, completed: false, claimed: false },
   });
   const userFriendlyAddress = useTonAddress();
+  const tonWallet = useTonWallet();
+  const connectedWalletAddress = tonWallet?.account?.address ?? userFriendlyAddress ?? null;
   const miningLastUpdatedRef = useRef<number | null>(null);
   const lastLinkedWalletRef = useRef<string | null>(null);
   const lastClaimTimeRef = useRef<string | null>(null);
@@ -477,7 +479,7 @@ const App = () => {
   const getTelegramContext = () => {
     const webApp = window.Telegram?.WebApp;
     const tgUser = webApp?.initDataUnsafe?.user ?? null;
-    const realUserId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
+    const realUserId = tgUser?.id ? String(tgUser.id) : null;
     return { webApp, tgUser, realUserId };
   };
   const getReferrerId = () => {
@@ -632,7 +634,7 @@ const App = () => {
 
     const webApp = window.Telegram?.WebApp;
     const tgUser = webApp?.initDataUnsafe?.user ?? null;
-    const realTelegramId = tgUser?.id ? String(tgUser.id) : userId ?? (webApp ? null : '12345678');
+    const realTelegramId = tgUser?.id ? String(tgUser.id) : userId ?? null;
     const username = tgUser?.username || tgUser?.first_name || 'Telegram User';
     const normalizedPoints = Number(Number(nextPoints).toFixed(4));
 
@@ -706,8 +708,8 @@ const App = () => {
       lastLinkedWalletRef.current = savedWallet ?? null;
     };
 
-    if (userFriendlyAddress) {
-      const normalizedAddress = userFriendlyAddress.trim();
+    if (connectedWalletAddress) {
+      const normalizedAddress = connectedWalletAddress.trim();
       if (lastLinkedWalletRef.current !== normalizedAddress) {
         lastLinkedWalletRef.current = normalizedAddress;
         setWalletAddress(normalizedAddress);
@@ -729,7 +731,7 @@ const App = () => {
     }
 
     void syncSavedWallet();
-  }, [telegramId, userFriendlyAddress]);
+  }, [telegramId, connectedWalletAddress]);
 
   const persistUserTaskStatus = async (taskId: string, payload: { completed: boolean; claimed: boolean; progress: number }) => {
     const currentUserId = telegramId ?? getTelegramContext().realUserId;
@@ -883,7 +885,7 @@ const App = () => {
       const newTotalPoints = Number((currentPoints + pendingReward).toFixed(4));
       const webApp = window.Telegram?.WebApp;
       const tgUser = webApp?.initDataUnsafe?.user ?? null;
-      const activeTelegramId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
+      const activeTelegramId = tgUser?.id ? String(tgUser.id) : null;
 
       if (!activeTelegramId) {
         const warning = 'Please open this mini-app inside Telegram to save your balance.';
@@ -1001,7 +1003,7 @@ const App = () => {
 
     const webApp = window.Telegram?.WebApp;
     const tgUser = webApp?.initDataUnsafe?.user ?? null;
-    const userId = tgUser?.id ? String(tgUser.id) : (webApp ? null : '12345678');
+    const userId = tgUser?.id ? String(tgUser.id) : null;
 
     if (!userId) {
       setTelegramWarning('Please open this mini-app inside Telegram to watch ads and earn rewards.');
@@ -1221,7 +1223,7 @@ const App = () => {
 
     if (!realUserId) {
       setTelegramWarning('Please open this mini-app inside Telegram to save your balance.');
-      setReferralLink('https://t.me/AURA_AGENBOT?start=ref_12345678');
+      setReferralLink('https://t.me/AURA_AGENBOT?start=ref');
       setPoints(0);
       return;
     }
@@ -1296,12 +1298,15 @@ const App = () => {
       if (!masterStateError && masterState) {
         const startupMiningRate = Number(masterState.mining_rate ?? masterState.current_speed ?? getMiningRateForLevel(currentMiningLevel || 1));
         const startupPendingRewards = Number(masterState.pending_rewards ?? 0);
+        const startupWalletAddress = (masterState.wallet_address as string | null) ?? null;
+        const startupAdCount = Number(masterState.ad_count ?? masterState.daily_count ?? 0);
         setMiningRate(startupMiningRate);
         setCurrentMiningSpeed(startupMiningRate);
         setLiveMiningValue(startupPendingRewards);
-        setAdCount(Number(masterState.ad_count ?? masterState.daily_count ?? 0));
-        setAdWatchCount(Number(masterState.ad_count ?? masterState.daily_count ?? 0));
-        setIsAdLocked(Boolean(masterState.is_ad_locked ?? Number(masterState.ad_count ?? masterState.daily_count ?? 0) >= 10));
+        setAdCount(startupAdCount);
+        setAdWatchCount(startupAdCount);
+        setIsAdLocked(Boolean(masterState.is_ad_locked ?? startupAdCount >= 10));
+        setWalletAddress(startupWalletAddress);
       }
 
       await syncUserLoginState(realUserId);
