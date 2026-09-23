@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { TonConnectButton, useTonAddress, useTonWallet } from '@tonconnect/ui-react';
 import './index.css';
+import { HomeView } from './Home';
+import { MinersView } from './Miners';
+import { TasksView, type TaskRecord } from './Tasks';
 import { supabase } from './supabase';
 
 type TelegramUser = {
@@ -1420,212 +1423,45 @@ const App = () => {
 
   const renderHomeView = () => {
     return (
-      <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
-
-        {telegramWarning && (
-          <div className="fixed inset-x-3 top-3 z-20 rounded-2xl border border-[#f7d780]/40 bg-[#171a20]/95 px-4 py-3 text-center text-xs font-bold text-[#f7d780] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
-            {telegramWarning}
-          </div>
-        )}
-
-        {toastMessage && (
-          <div className="fixed inset-x-3 top-16 z-20 rounded-2xl border border-[#8ef0b0]/40 bg-[#11251a]/95 px-4 py-3 text-center text-xs font-bold text-[#9ff7c3] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
-            {toastMessage}
-          </div>
-        )}
-
-        <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
-          <div className="flex items-center justify-between gap-2">
-            <div className="rounded-full border border-[#f7d780]/35 bg-[#1f1b13]/80 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.22em] text-[#f8d77a] shadow-[0_0_18px_rgba(229,193,88,0.15)]">
-              LVL {activeUserLevel}
-            </div>
-            <div className="flex items-center gap-2">
-              {walletAddress && (
-                <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
-                  {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-                </span>
-              )}
-              <TonConnectButton />
-            </div>
-          </div>
-        </div>
-
-        <div className="relative z-10 flex flex-1 flex-col justify-center pb-6 pt-20">
-          <div className="mx-auto w-full max-w-md">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Holding Wallet</div>
-                <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.75).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-              </div>
-              <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Pool Wallet</div>
-                <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.25).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
-              <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">
-                <span>Live Counter</span>
-                <span className="rounded-full border border-[#e5c158]/25 bg-[#f4c75b]/10 px-2 py-1 text-[8px] text-[#f8d77a]">Lvl {activeUserLevel}</span>
-              </div>
-              <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
-                {`+${liveMiningValue.toFixed(4)} AGEN`}
-              </div>
-              <div className="mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#f7d780]">
-                Speed: {currentMiningSpeed.toFixed(4)} AGEN/hr
-              </div>
-              <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
-                <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
-                {isMining ? 'PASSIVE MINING (LIVE)' : 'READY TO MINE'}
-              </div>
-            </div>
-
-            <div className="mt-8 flex items-center justify-center">
-              <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
-                <button
-                  type="button"
-                  aria-label="Activate 2x mining speed boost"
-                  className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adLimitReached ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
-                  onClick={() => void handleSpeedBoost()}
-                  disabled={adLimitReached || speedBoostSecondsLeft > 0 || isAdLoading}
-                >
-                  <span className="text-[11px] font-black">⚡</span>
-                  <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adLimitReached ? 'LOCK' : '2x'}</span>
-                </button>
-                <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-                <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-3">
-              <button
-                className="w-full rounded-[20px] bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-5 py-4 text-lg font-black uppercase tracking-[0.18em] text-[#16130b] shadow-[0_18px_35px_rgba(212,175,55,0.35)] transition-transform active:scale-[0.99]"
-                onClick={handleMiningAction}
-              >
-                {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
-              </button>
-              <div className="flex flex-col gap-2">
-                <button
-                  className={`w-full rounded-[18px] border px-4 py-3 text-sm font-black uppercase tracking-[0.16em] shadow-[0_0_18px_rgba(229,193,88,0.06)] ${isAdLocked || adCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#e5c158]/25 bg-[#171a1d] text-[#f8d77a]'}`}
-                  onClick={handleWatchAd}
-                  disabled={isAdLocked || adCount >= 10}
-                >
-                  {isAdLocked || adCount >= 10 ? 'LIMIT REACHED (10/10)' : `WATCH AD (${Math.min(adCount, 10)}/10)`}
-                </button>
-                {(isAdLocked || adCount >= 10) && (
-                  <div className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2.5 py-1.5 text-center text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
-                    {adProgressText}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <HomeView
+        telegramWarning={telegramWarning}
+        toastMessage={toastMessage}
+        activeUserLevel={activeUserLevel}
+        walletAddress={walletAddress}
+        displayedBalance={displayedBalance}
+        currentMiningSpeed={currentMiningSpeed}
+        isMining={isMining}
+        liveMiningValue={liveMiningValue}
+        adLimitReached={adLimitReached}
+        speedBoostSecondsLeft={speedBoostSecondsLeft}
+        isAdLoading={isAdLoading}
+        safeMinedThisSession={safeMinedThisSession}
+        adCount={adCount}
+        isAdLocked={isAdLocked}
+        adProgressText={adProgressText}
+        handleSpeedBoost={handleSpeedBoost}
+        handleMiningAction={handleMiningAction}
+        handleWatchAd={handleWatchAd}
+        LogoComponent={HollowGoldBrandLogo}
+      />
     );
   };
 
   const renderMinersView = () => {
     return (
-      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Miners</p>
-            <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
-          </div>
-        </div>
-
-        <div className="rounded-[30px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_32px_rgba(0,0,0,0.2)] backdrop-blur-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Current Level</p>
-              <h2 className="mt-2 text-3xl font-black text-[#fff3c4]">Lv. {currentMiningLevel || currentLevel}</h2>
-            </div>
-            <div className="rounded-full border border-[#8ef0b0]/35 bg-[#0d1c17]/80 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-[#a8ffd0]">
-              {currentMiningLevel >= 8 ? 'Peak' : 'Mining'}
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-2xl bg-[#11161b] p-3">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Today&apos;s P&amp;L</div>
-              <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max((currentMiningLevel || currentLevel) * 0.8, 2.4)).toFixed(1)}</div>
-            </div>
-            <div className="rounded-2xl bg-[#11161b] p-3">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
-              <div className="mt-2 text-lg font-black text-[#f9e6ad]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl bg-[#101419] p-3">
-            <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.18em] text-[#d7bf73]">
-              <span>Performance</span>
-              <span>{Math.min(((currentMiningLevel || currentLevel) / 36) * 100, 100).toFixed(0)}%</span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#1f252d]">
-              <div className="h-full rounded-full bg-[linear-gradient(90deg,#f7d57a,#d4af37_35%,#f3d784_100%)]" style={{ width: `${Math.min(((currentMiningLevel || currentLevel) / 36) * 100, 100)}%` }} />
-            </div>
-          </div>
-
-          {speedBoostSecondsLeft > 0 && (
-            <div className="mt-4 rounded-2xl border border-[#5ee7a9]/30 bg-[#0f1d1a]/80 px-3 py-2 text-xs font-bold text-[#9ff7c3]">
-              2x Speed Boost active: {speedBoostSecondsLeft}s remaining
-            </div>
-          )}
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          {minerLevels.map((entry) => {
-            const isUnlocked = (currentMiningLevel || currentLevel) >= entry.level;
-            const isAffordable = points >= entry.price;
-            const statusText = isUnlocked
-              ? 'ACTIVE'
-              : isAffordable
-                ? 'NEED ' + entry.price + ' tokens to unlock'
-                : 'LOCKED';
-
-            return (
-              <div key={entry.level} className={`rounded-[26px] border p-3 shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${isUnlocked ? 'border-[#f7d780]/40 bg-[#1b1c1f]' : 'border-[#f7d780]/15 bg-[#14181d]'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Lvl</p>
-                    <h3 className="mt-1 text-xl font-black text-white">{entry.level}</h3>
-                  </div>
-                  <span className="rounded-full bg-[#f4c75b]/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
-                    {entry.speed}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-2 text-xs text-white/75">
-                  <div className="flex items-center justify-between">
-                    <span>Price</span>
-                    <span className="font-bold text-[#f9e6ad]">{entry.price} tokens</span>
-                  </div>
-                </div>
-
-                <button
-                  className={`mt-4 w-full rounded-full px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] transition-all ${
-                    isUnlocked
-                      ? 'bg-[#1b3a2d] text-[#9ff7c3]'
-                      : isAffordable
-                        ? 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
-                        : 'bg-[#1d2128] text-[#d8dbe0]'
-                  }`}
-                  onClick={() => void handleMinerUpgrade(entry.level)}
-                  disabled={!isAffordable && !isUnlocked}
-                >
-                  {statusText}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <MinersView
+        currentMiningLevel={currentMiningLevel}
+        currentLevel={currentLevel}
+        currentMiningSpeed={currentMiningSpeed}
+        speedBoostSecondsLeft={speedBoostSecondsLeft}
+        points={points}
+        minerLevels={minerLevels}
+        handleMinerUpgrade={handleMinerUpgrade}
+      />
     );
   };
 
-  const tasks = [
+  const tasks: TaskRecord[] = [
     {
       id: 'watch_ad',
       title: 'Watch Ad & Earn',
@@ -1645,72 +1481,16 @@ const App = () => {
   ];
 
   const renderTasksView = () => (
-    <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
-      <div className="mb-5 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Task Board</p>
-          <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Tasks</h1>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {tasks.map((task) => {
-          const status = taskStatus[task.id] ?? { opened: false, completed: false, claimed: false };
-          const isCompleted = task.type === 'ad' ? adLimitReached || adCount >= (task.max_daily ?? 10) : status.claimed || status.completed;
-          const buttonLabel = task.type === 'ad'
-            ? isCompleted
-              ? 'LIMIT REACHED (10/10)'
-              : `WATCH (${Math.min(adCount, 10)}/10)`
-            : status.claimed || status.completed
-              ? 'Completed'
-              : status.opened
-                ? 'Claim'
-                : 'Go';
-
-          return (
-            <div key={task.id} className="rounded-[28px] border border-[#f7d780]/20 bg-[#181b21]/85 p-4 shadow-[0_18px_34px_rgba(0,0,0,0.2)] backdrop-blur-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f4c75b]/15 text-2xl shadow-[0_0_16px_rgba(244,199,91,0.25)]">
-                    {task.icon}
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-[#f8d77a]">Mission</p>
-                    <h2 className="mt-2 text-lg font-bold text-white">{task.title}</h2>
-                    {task.type === 'ad' && (
-                      <p className="mt-2 text-xs text-white/70">
-                        {isAdLocked || adCount >= 10 ? 'LIMIT REACHED (10/10)' : `Watched: ${Math.min(adCount, 10)}/${task.max_daily}`}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <span className="rounded-full bg-[#f4c75b]/15 px-2.5 py-1 text-xs font-bold text-[#f8d77a]">{task.reward}</span>
-              </div>
-
-              <div className="mt-4 flex items-center justify-end">
-                <button
-                  className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[0.16em] transition-all ${
-                    isCompleted || (task.type === 'ad' && isAdLoading)
-                      ? 'bg-[#1d2128] text-[#d8dbe0]'
-                      : 'bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] text-[#16130b]'
-                  }`}
-                  onClick={() => {
-                    if (task.type === 'ad') {
-                      void handleWatchAdTask();
-                    } else {
-                      void handleChannelTaskAction(task.id);
-                    }
-                  }}
-                  disabled={task.type === 'ad' ? (adLimitReached || isAdLoading) : isCompleted || isAdLoading}
-                >
-                  {task.type === 'ad' && isAdLoading ? 'Loading...' : buttonLabel}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <TasksView
+      tasks={tasks}
+      taskStatus={taskStatus}
+      adLimitReached={adLimitReached}
+      adCount={adCount}
+      isAdLocked={isAdLocked}
+      isAdLoading={isAdLoading}
+      handleWatchAdTask={handleWatchAdTask}
+      handleChannelTaskAction={handleChannelTaskAction}
+    />
   );
 
   const renderFriendsView = () => (
