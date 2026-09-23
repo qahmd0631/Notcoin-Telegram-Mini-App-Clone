@@ -34,6 +34,24 @@ declare global {
   }
 }
 
+export const MINING_LEVEL_RATES: Array<{ level: number; label: string; rate: number; badge: string }> = [
+  { level: 1, label: 'Free', rate: 0.001, badge: 'Starter' },
+  { level: 2, label: 'Paid', rate: 0.005, badge: 'Bronze' },
+  { level: 3, label: 'Paid', rate: 0.02, badge: 'Silver' },
+  { level: 4, label: 'Paid', rate: 0.08, badge: 'Gold' },
+  { level: 5, label: 'Paid', rate: 0.2, badge: 'Platinum' },
+];
+
+export const getMiningRateForLevel = (level: number) => {
+  const matchedRate = MINING_LEVEL_RATES.find((entry) => entry.level === Number(level));
+  return matchedRate ? matchedRate.rate : 0.001;
+};
+
+export const getMiningLevelMeta = (level: number) => {
+  const matched = MINING_LEVEL_RATES.find((entry) => entry.level === Number(level));
+  return matched ?? MINING_LEVEL_RATES[0];
+};
+
 const HollowGoldBrandLogo = ({ size = 170, className = '' }: { size?: number; className?: string }) => (
   <svg
     width={size}
@@ -97,7 +115,9 @@ const App = () => {
   const [isAdLocked, setIsAdLocked] = useState(false);
   const [isAdLoading, setIsAdLoading] = useState(false);
   const [balance, setBalance] = useState(0);
-  const [miningRate, setMiningRate] = useState(0.0001);
+  const [miningRate, setMiningRate] = useState(getMiningRateForLevel(1));
+  const [currentMiningLevel, setCurrentMiningLevel] = useState(1);
+  const [currentMiningSpeed, setCurrentMiningSpeed] = useState(getMiningRateForLevel(1));
   const [loginBaseBalance, setLoginBaseBalance] = useState(0);
   const [liveMiningDisplay, setLiveMiningDisplay] = useState(0);
   const [pendingMiningRewards, setPendingMiningRewards] = useState(0);
@@ -127,32 +147,39 @@ const App = () => {
     return Number((elapsedSeconds * rate).toFixed(4));
   };
 
-  const syncUserLoginState = async (userId: string | null) => {
+  const syncUserLevelMining = async (userId: string | null) => {
     if (!userId) {
       return;
     }
 
-    const { data, error } = await supabase.rpc('handle_user_login_sync', {
+    const { data, error } = await supabase.rpc('sync_user_level_mining', {
       p_user_id: String(userId),
     });
 
     if (error || !data) {
-      console.warn('[Login Sync] handle_user_login_sync failed:', error ?? 'no data');
+      console.warn('[Level Mining Sync] sync_user_level_mining failed:', error ?? 'no data');
       return;
     }
 
+    const nextLevel = Number(data.miner_level ?? data.level ?? data.user_level ?? currentMiningLevel ?? 1);
+    const nextSpeed = Number(data.mining_speed ?? data.current_speed ?? data.mining_rate ?? getMiningRateForLevel(nextLevel));
     const nextBalance = Number(data.new_balance ?? data.balance ?? 0);
-    const nextMiningRate = Number(data.current_speed ?? data.mining_rate ?? 0.0001);
     const nextMinedAmount = Number(data.mined_amount ?? data.pending_rewards ?? 0);
 
+    setCurrentMiningLevel(nextLevel);
+    setCurrentMiningSpeed(nextSpeed);
+    setMiningRate(nextSpeed);
     setLoginBaseBalance(nextBalance);
     setBalance(nextBalance);
     setPoints(nextBalance);
-    setMiningRate(nextMiningRate);
     setPendingMiningRewards(nextMinedAmount);
     setMinedThisSession(nextMinedAmount);
     setLiveMiningDisplay(nextBalance);
     loginLastAnchorRef.current = Date.now();
+  };
+
+  const syncUserLoginState = async (userId: string | null) => {
+    await syncUserLevelMining(userId);
   };
 
   const syncAppState = async (userId: string | null) => {
@@ -996,8 +1023,10 @@ const App = () => {
 
   const handleMinerUpgrade = async (level: number) => {
     const target = Number(level);
-    if (target <= currentLevel) {
-      setCurrentLevel(target);
+    if (target <= currentMiningLevel) {
+      setCurrentMiningLevel(target);
+      setCurrentMiningSpeed(getMiningRateForLevel(target));
+      setMiningRate(getMiningRateForLevel(target));
       return;
     }
 
@@ -1009,12 +1038,38 @@ const App = () => {
     }
 
     const nextPoints = Number((points - required).toFixed(4));
+    const nextRate = getMiningRateForLevel(target);
+    const userId = telegramId ?? getTelegramContext().realUserId;
+
+    if (userId) {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          miner_level: target,
+          mining_rate: nextRate,
+          points: nextPoints,
+          last_active_time: new Date().toISOString(),
+        })
+        .eq('telegram_id', String(userId));
+
+      if (error) {
+        console.warn('[Mining Upgrade] Failed to persist level:', error);
+        return;
+      }
+    }
+
     setPoints(nextPoints);
     setCurrentLevel(target);
+    setCurrentMiningLevel(target);
+    setCurrentMiningSpeed(nextRate);
+    setMiningRate(nextRate);
     setToastMessage(`Level ${target} activated.`);
     window.setTimeout(() => setToastMessage(null), 2200);
 
-    const userId = telegramId ?? getTelegramContext().realUserId;
+    if (userId) {
+      await syncUserLevelMining(userId);
+    }
+
     await persistUserBalance(nextPoints, 'miner_upgrade', userId);
   };
 
@@ -1092,7 +1147,7 @@ const App = () => {
     }
 
     const refreshAppState = () => {
-      void syncUserLoginState(telegramId);
+      void syncUserLevelMining(telegramId);
       void syncAppState(telegramId);
     };
 
@@ -1314,113 +1369,132 @@ const App = () => {
     },
   ];
 
-  const renderHomeView = () => (
-    <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
+  const renderHomeView = () => {
+    const activeLevelMeta = getMiningLevelMeta(currentMiningLevel || currentLevel);
+    return (
+      <div className="relative z-10 w-full text-white" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 'calc(100vh - 70px)' }}>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(229,193,88,0.2),_transparent_38%),radial-gradient(circle_at_bottom,_rgba(0,168,255,0.12),_transparent_42%)]" />
 
-      {telegramWarning && (
-        <div className="fixed inset-x-3 top-3 z-20 rounded-2xl border border-[#f7d780]/40 bg-[#171a20]/95 px-4 py-3 text-center text-xs font-bold text-[#f7d780] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
-          {telegramWarning}
-        </div>
-      )}
-
-      {toastMessage && (
-        <div className="fixed inset-x-3 top-16 z-20 rounded-2xl border border-[#8ef0b0]/40 bg-[#11251a]/95 px-4 py-3 text-center text-xs font-bold text-[#9ff7c3] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
-          {toastMessage}
-        </div>
-      )}
-
-      <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
-            <HollowGoldBrandLogo size={18} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.7)]" />
-            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl 1 • IDLE</span>
+        {telegramWarning && (
+          <div className="fixed inset-x-3 top-3 z-20 rounded-2xl border border-[#f7d780]/40 bg-[#171a20]/95 px-4 py-3 text-center text-xs font-bold text-[#f7d780] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+            {telegramWarning}
           </div>
-          <div className="flex items-center gap-2">
-            {walletAddress && (
-              <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
-                {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-              </span>
-            )}
-            <TonConnectButton />
-          </div>
-        </div>
-      </div>
+        )}
 
-      <div className="relative z-10 flex flex-1 flex-col justify-center pb-6 pt-20">
-        <div className="mx-auto w-full max-w-md">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Holding Wallet</div>
-              <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.75).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-            </div>
-            <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Pool Wallet</div>
-              <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.25).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-            </div>
+        {toastMessage && (
+          <div className="fixed inset-x-3 top-16 z-20 rounded-2xl border border-[#8ef0b0]/40 bg-[#11251a]/95 px-4 py-3 text-center text-xs font-bold text-[#9ff7c3] shadow-[0_12px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+            {toastMessage}
           </div>
+        )}
 
-          <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
-            <div className="text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">Live Counter</div>
-            <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
-              {`+${miningCounterValue.toFixed(4)} AGEN`}
+        <div className="fixed top-0 left-0 z-10 w-full px-4 pt-6 text-white">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 rounded-full border border-[#e5c158]/40 bg-[#111317]/80 px-2 py-1.5 shadow-[0_0_20px_rgba(229,193,88,0.2)] backdrop-blur-sm">
+              <HollowGoldBrandLogo size={18} className="drop-shadow-[0_0_12px_rgba(229,193,88,0.7)]" />
+              <div className="flex flex-col leading-none">
+                <span className="text-[10px] font-black uppercase tracking-[0.22em] text-[#f3d37c]">Lvl {currentMiningLevel || currentLevel} • {activeLevelMeta.badge}</span>
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#a7f6ca]">{currentMiningSpeed.toFixed(4)} AGEN/hr</span>
+              </div>
             </div>
-            <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
-              <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
-              {isMining ? 'PASSIVE MINING (LIVE)' : 'READY TO MINE'}
-            </div>
-          </div>
-
-          <div className="mt-8 flex items-center justify-center">
-            <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
-              <button
-                type="button"
-                aria-label="Activate 2x mining speed boost"
-                className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adLimitReached ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
-                onClick={() => void handleSpeedBoost()}
-                disabled={adLimitReached || speedBoostSecondsLeft > 0 || isAdLoading}
-              >
-                <span className="text-[11px] font-black">⚡</span>
-                <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adLimitReached ? 'LOCK' : '2x'}</span>
-              </button>
-              <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
-              <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3">
-            <button
-              className="w-full rounded-[20px] bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-5 py-4 text-lg font-black uppercase tracking-[0.18em] text-[#16130b] shadow-[0_18px_35px_rgba(212,175,55,0.35)] transition-transform active:scale-[0.99]"
-              onClick={handleMiningAction}
-            >
-              {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
-            </button>
-            <div className="flex flex-col gap-2">
-              <button
-                className={`w-full rounded-[18px] border px-4 py-3 text-sm font-black uppercase tracking-[0.16em] shadow-[0_0_18px_rgba(229,193,88,0.06)] ${isAdLocked || adCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#e5c158]/25 bg-[#171a1d] text-[#f8d77a]'}`}
-                onClick={handleWatchAd}
-                disabled={isAdLocked || adCount >= 10}
-              >
-                {isAdLocked ? 'Daily Limit Reached (10/10) - Unlocks in 24h' : 'Watch Ad (+5 Mins)'}
-              </button>
-              {isAdLocked && (
-                <div className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2.5 py-1.5 text-center text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
-                  Daily Limit Reached (10/10) - Unlocks in 24h
-                </div>
+            <div className="flex items-center gap-2">
+              {walletAddress && (
+                <span className="rounded-full border border-[#8ef0b0]/40 bg-[#0f1c17]/80 px-2.5 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-[#9ff7c3]">
+                  {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                </span>
               )}
+              <TonConnectButton />
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10 flex flex-1 flex-col justify-center pb-6 pt-20">
+          <div className="mx-auto w-full max-w-md">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Holding Wallet</div>
+                <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.75).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+              </div>
+              <div className="rounded-[22px] border border-[#e5c158]/30 bg-[#101317]/80 p-3 shadow-[0_0_22px_rgba(229,193,88,0.08)] backdrop-blur-sm">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#d9c27a]">Pool Wallet</div>
+                <div className="mt-3 text-lg font-black text-[#f9e4a4]">{(displayedBalance * 0.25).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-[28px] border border-[#e5c158]/30 bg-[#111317]/80 px-4 py-5 text-center shadow-[0_0_26px_rgba(229,193,88,0.12)] backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.26em] text-[#c9b16a]">
+                <span>Live Counter</span>
+                <span className="rounded-full border border-[#e5c158]/25 bg-[#f4c75b]/10 px-2 py-1 text-[8px] text-[#f8d77a]">Lvl {currentMiningLevel || currentLevel}</span>
+              </div>
+              <div className="mt-3 text-3xl font-black tracking-[-0.06em] text-[#00ff88] drop-shadow-[0_0_16px_rgba(0,255,136,0.7)]">
+                {`+${miningCounterValue.toFixed(4)} AGEN`}
+              </div>
+              <div className="mt-2 text-[10px] font-black uppercase tracking-[0.18em] text-[#f7d780]">
+                Speed: {currentMiningSpeed.toFixed(4)} AGEN/hr
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#9ad7be]">
+                <span className="inline-block h-2 w-2 rounded-full bg-[#00ff88] shadow-[0_0_12px_rgba(0,255,136,0.8)]"></span>
+                {isMining ? 'PASSIVE MINING (LIVE)' : 'READY TO MINE'}
+              </div>
+            </div>
+
+            <div className="mt-8 flex items-center justify-center">
+              <div className="relative flex h-56 w-56 items-center justify-center rounded-full border border-[#e5c158]/20 bg-[radial-gradient(circle,_rgba(255,208,90,0.16),_rgba(0,0,0,0)_65%)] shadow-[0_0_40px_rgba(229,193,88,0.12)]">
+                <button
+                  type="button"
+                  aria-label="Activate 2x mining speed boost"
+                  className={`absolute right-2 top-1 z-10 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[#16130b] shadow-[0_10px_26px_rgba(212,175,55,0.35)] ${adLimitReached ? 'cursor-not-allowed border-[#f7d780]/25 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/40 bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)]'}`}
+                  onClick={() => void handleSpeedBoost()}
+                  disabled={adLimitReached || speedBoostSecondsLeft > 0 || isAdLoading}
+                >
+                  <span className="text-[11px] font-black">⚡</span>
+                  <span className="text-[9px] font-black leading-none">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : adLimitReached ? 'LOCK' : '2x'}</span>
+                </button>
+                <div className="absolute inset-5 rounded-full border border-[#e5c158]/15"></div>
+                <HollowGoldBrandLogo size={170} className="drop-shadow-[0_0_24px_rgba(229,193,88,0.7)]" />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                className="w-full rounded-[20px] bg-[linear-gradient(135deg,#f7d57a,#d4af37_35%,#f3d784_100%)] px-5 py-4 text-lg font-black uppercase tracking-[0.18em] text-[#16130b] shadow-[0_18px_35px_rgba(212,175,55,0.35)] transition-transform active:scale-[0.99]"
+                onClick={handleMiningAction}
+              >
+                {safeMinedThisSession > 0 ? 'CLAIM' : isMining ? 'PASSIVE MINING' : 'START'}
+              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  className={`w-full rounded-[18px] border px-4 py-3 text-sm font-black uppercase tracking-[0.16em] shadow-[0_0_18px_rgba(229,193,88,0.06)] ${isAdLocked || adCount >= 10 ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#e5c158]/25 bg-[#171a1d] text-[#f8d77a]'}`}
+                  onClick={handleWatchAd}
+                  disabled={isAdLocked || adCount >= 10}
+                >
+                  {isAdLocked ? 'Daily Limit Reached (10/10) - Unlocks in 24h' : 'Watch Ad (+5 Mins)'}
+                </button>
+                {isAdLocked && (
+                  <div className="rounded-full border border-[#f7d780]/25 bg-[#f4c75b]/10 px-2.5 py-1.5 text-center text-[9px] font-black uppercase tracking-[0.18em] text-[#f8d77a]">
+                    Daily Limit Reached (10/10) - Unlocks in 24h
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const renderMinersView = () => (
-    <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
+  const renderMinersView = () => {
+    const activeLevelMeta = getMiningLevelMeta(currentMiningLevel || currentLevel);
+    return (
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-70px)] w-full max-w-xl flex-col px-4 pb-28 pt-6 text-white">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#f4d889]">Miners</p>
           <h1 className="mt-2 text-3xl font-black text-[#fff8e1]">Upgrade Store</h1>
+        </div>
+        <div className="rounded-full border border-[#f7d780]/30 bg-[#f4c75b]/10 px-2.5 py-1.5 text-right">
+          <div className="text-[8px] uppercase tracking-[0.18em] text-[#f4d889]">Active Level</div>
+          <div className="text-xs font-black text-[#fff3c4]">Lv. {currentMiningLevel || currentLevel} • {activeLevelMeta.label}</div>
+          <div className="text-[9px] font-bold text-[#9ff7c3]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
         </div>
         <button
           className={`rounded-full border px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${adLimitReached ? 'cursor-not-allowed border-[#f7d780]/20 bg-[#1d2128] text-[#d8dbe0]' : 'border-[#f7d780]/30 bg-[#f4c75b]/10 text-[#f9e6ad]'}`}
@@ -1445,11 +1519,11 @@ const App = () => {
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div className="rounded-2xl bg-[#11161b] p-3">
             <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Today&apos;s P&amp;L</div>
-            <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max(currentLevel * 0.8, 2.4)).toFixed(1)}</div>
+            <div className="mt-2 text-lg font-black text-[#a9f0b7]">+${(Math.max((currentMiningLevel || currentLevel) * 0.8, 2.4)).toFixed(1)}</div>
           </div>
           <div className="rounded-2xl bg-[#11161b] p-3">
             <div className="text-[10px] uppercase tracking-[0.18em] text-[#f4d889]">Mining Rate</div>
-            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{(miningRate * 10000).toFixed(2)} TH/s</div>
+            <div className="mt-2 text-lg font-black text-[#f9e6ad]">{currentMiningSpeed.toFixed(4)} AGEN/hr</div>
           </div>
         </div>
 
@@ -1517,7 +1591,8 @@ const App = () => {
         })}
       </div>
     </div>
-  );
+    );
+  };
 
   const tasks = [
     {
