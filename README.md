@@ -1,96 +1,118 @@
-# Notcoin Clone
+# AURA_AGEN
 
-<div align="center">
-  <img src="https://nikandr.com/og-image.jpg" alt="Nikandr - Premium Telegram Development Resources" width="600"/>
-  
-  🚀 **Looking to master Telegram Mini App development?**  
-  Visit [nikandr.com](https://nikandr.com) for the best premium content and courses for Telegram developers.
-</div>
+A Telegram Mini App for AURA_AGEN mining, levels, referrals, tasks, TON wallet integration, and Vercel deployment.
 
----
+## 1. Installing dependencies
 
-This repository contains the initial setup and the final version of the Notcoin clone project, including the basic project structure, necessary images, and icons.
+```bash
+npm install
+```
 
-## Overview
+## 2. Supabase setup
 
-This project is a clone of the popular Telegram mini app, Notcoin. The repository provides two branches:
+1. Create a new Supabase project.
+2. Open the SQL editor and run the migration in `supabase/migrations/001_initial_schema.sql`.
+3. Keep the project URL and anon key for the app.
+4. Set the service role key only for server-side/admin flows.
 
-1. **Initial Setup**: Provides the foundational structure and assets needed to build the full application.
-2. **Final Version**: The completed application with all functionalities.
+## 3. Database migration
 
-## Getting Started
+```bash
+# In Supabase SQL editor
+\i supabase/migrations/001_initial_schema.sql
+```
 
-To get started with either the initial setup or the final version, follow these instructions:
+## 4. Environment variables
 
-### Cloning the Repository
+Create a `.env` file from `.env.example` and fill in values:
 
-1. **Clone the Repository**:
+```bash
+cp .env.example .env
+```
 
-    ```bash
-    git clone https://github.com/nikandr-surkov/Notcoin-Telegram-Mini-App-Clone.git
-    cd Notcoin-Telegram-Mini-App-Clone
-    ```
+Required variables:
 
-### Initial Setup
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `BOT_TOKEN`
+- `VITE_BOT_TOKEN`
+- `VITE_TON_NETWORK`
+- `VITE_TON_RECEIVER_WALLET`
+- `VITE_TELEGRAM_CHANNEL`
+- `VITE_MONETAG_ZONE_ID`
+- `VITE_MINI_APP_URL`
 
-2. **Switch to the `initial-setup` Branch**:
+## 5. Telegram bot configuration
 
-    ```bash
-    git checkout initial-setup
-    ```
+1. Create a Telegram bot with BotFather.
+2. Set the bot username to `@AURA_AGENBOT`.
+3. Save the token in `BOT_TOKEN` and `VITE_BOT_TOKEN`.
+4. Add the Mini App URL in the bot configuration or admin panel.
 
-3. **Install Dependencies**:
+## 6. Mini App configuration
 
-    ```bash
-    npm install
-    ```
+1. Deploy the frontend to Vercel.
+2. Set the deployed Vercel domain as the Mini App URL.
+3. Ensure the app is launched from Telegram to receive `initData`.
+4. Use `startapp=main` or `?start=<referrer_id>` referral launch links.
 
-4. **Run the Development Server**:
+## 7. TON Connect configuration
 
-    ```bash
-    npm run dev
-    ```
+1. Keep the receiver wallet as:
+   `UQA0N60XaN9c1l5DvOoQcnXWEX7YEFvNaETOnenlk3iSCPX5`
+2. Update `public/tonconnect-manifest.json` to match the deployed domain.
+3. Use the TON Connect button in the wallet section.
 
-5. **Open Your Browser**:
+## 8. Monetag configuration
 
-    Navigate to localhost to see the initial setup.
+1. Add your Monetag zone ID in `VITE_MONETAG_ZONE_ID`.
+2. Keep the ad reward logic aligned with the configured daily limit.
+3. Use the channel and ad rules with the default values listed in the product rules.
 
-### Final Version
+## 9. Vercel deployment
 
-2. **Switch to the `final-version` Branch**:
+1. Push the repo to GitHub.
+2. Import the repository in Vercel.
+3. Use the default Vite configuration and environment variables.
+4. Deploy the app.
 
-    ```bash
-    git checkout final-version
-    ```
+Example build commands:
 
-3. **Install Dependencies**:
+```bash
+npm install
+npm run build
+```
 
-    ```bash
-    npm install
-    ```
+## 10. Admin setup
 
-4. **Run the Development Server**:
+Set Telegram admin IDs in your server-side auth logic and verify they are allowed to access admin flows.
 
-    ```bash
-    npm run dev
-    ```
+## 11. Testing
 
-5. **Open Your Browser**:
+```bash
+npm test
+```
 
-    Navigate to localhost to see the final version of the application.
+## 12. Enabling withdrawals later
 
-## Author
-### Nikandr Surkov
-- 🌐 Website: https://nikandr.com
-- 📺 YouTube: https://www.youtube.com/@NikandrSurkov
-- 📢 Telegram Channel: https://t.me/NikandrApps
-- 📱 Telegram: https://t.me/nikandr_s
-- 💻 GitHub: https://github.com/nikandr-surkov
-- 🐦 Twitter: https://x.com/NikandrSurkov
-- 💼 LinkedIn: https://www.linkedin.com/in/nikandr-surkov/
-- ✍️ Medium: https://medium.com/@NikandrSurkov
+1. Update `withdrawals_enabled` to `true` in the app settings data.
+2. Verify the receiver wallet is correct.
+3. Keep the minimum threshold at 1000 AGEN.
+4. Confirm TON transaction validation before processing a payout.
 
----
+## Product rules enforced
 
-Built with ❤️ for the Telegram developer community
+- Referral reward = 50 AGEN
+- Telegram task = 2 AGEN
+- Ad reward = 1 AGEN
+- Daily ads = 10
+- Minimum withdrawal = 1000 AGEN
+- Withdrawal default = OFF
+- TON network = MAINNET
+- Receiver wallet = `UQA0N60XaN9c1l5DvOoQcnXWEX7YEFvNaETOnenlk3iSCPX5`
+
+## Architecture
+
+GitHub → Vercel → Telegram Mini App + API → Supabase PostgreSQL → TON Mainnet → Telegram Bot
 

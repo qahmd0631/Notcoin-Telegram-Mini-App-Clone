@@ -1,6 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-export const SUPABASE_URL = 'https://epzlwkfwwuamectyfymj.supabase.co';
-export const SUPABASE_ANON_KEY = 'sb_publishable_k7TKRMrpwowM3ybkzacdow_Szjf9sT2';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const SUPABASE_URL = supabaseUrl;
+export const SUPABASE_ANON_KEY = supabaseAnonKey;
+
+export const supabase = createClient(SUPABASE_URL || 'https://placeholder.supabase.co', SUPABASE_ANON_KEY || 'placeholder-key', {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
