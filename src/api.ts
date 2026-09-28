@@ -54,14 +54,21 @@ const getHeaders = () => {
     'Content-Type': 'application/json',
   };
 
-  if (typeof window !== 'undefined' && window.Telegram?.WebApp?.initData) {
-    headers['x-telegram-init-data'] = window.Telegram.WebApp.initData;
-  }
+  // JWT Token from local storage
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('aura_jwt_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
-  // Stored or fallback ID
-  const localId = localStorage.getItem('aura_telegram_id');
-  if (localId) {
-    headers['x-telegram-id'] = localId;
+    if (window.Telegram?.WebApp?.initData) {
+      headers['x-telegram-init-data'] = window.Telegram.WebApp.initData;
+    }
+
+    const localId = localStorage.getItem('aura_telegram_id');
+    if (localId) {
+      headers['x-telegram-id'] = localId;
+    }
   }
 
   return headers;
@@ -86,7 +93,14 @@ export const api = {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || err.message || 'Auth failed');
     }
-    return res.json();
+    const data = await res.json();
+    if (data.token) {
+      localStorage.setItem('aura_jwt_token', data.token);
+    }
+    if (data.user?.telegram_id) {
+      localStorage.setItem('aura_telegram_id', String(data.user.telegram_id));
+    }
+    return data;
   },
 
   async getState(): Promise<UserStateResponse> {

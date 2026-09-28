@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, withTransaction } from './db.js';
-import { verifyTelegramInitData } from './auth.js';
+import { resolveUserContext, issueJwtToken, getBotToken } from './auth.js';
 import {
   AURA_AGEN_SETTINGS,
   LEVELS,
@@ -11,43 +11,7 @@ import {
 
 export const apiRouter = Router();
 
-const BOT_TOKEN = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-
-// Helper to resolve telegram_id from request
-function resolveUserContext(req: Request): {
-  telegram_id: number;
-  username?: string;
-  first_name?: string;
-  last_name?: string;
-  start_param?: string;
-} {
-  const initData = (req.headers['x-telegram-init-data'] as string) || (req.body?.initData as string);
-
-  if (initData) {
-    const verified = verifyTelegramInitData(initData, BOT_TOKEN);
-    if (verified && verified.user?.id) {
-      return {
-        telegram_id: verified.user.id,
-        username: verified.user.username,
-        first_name: verified.user.first_name,
-        last_name: verified.user.last_name,
-        start_param: verified.start_param,
-      };
-    }
-  }
-
-  // Fallback for direct browser testing or dev mode
-  const rawId = req.headers['x-telegram-id'] || req.query.telegram_id || req.body?.telegram_id;
-  const tid = rawId ? parseInt(String(rawId), 10) : 100000001;
-
-  return {
-    telegram_id: isNaN(tid) ? 100000001 : tid,
-    username: (req.body?.username as string) || 'agen_miner',
-    first_name: (req.body?.first_name as string) || 'Explorer',
-    last_name: req.body?.last_name as string,
-    start_param: req.body?.start_param as string,
-  };
-}
+const BOT_TOKEN = getBotToken();
 
 // 1. Telegram Auth & User Session
 apiRouter.post('/auth/telegram', async (req: Request, res: Response) => {
@@ -155,8 +119,15 @@ apiRouter.post('/auth/telegram', async (req: Request, res: Response) => {
       return newUser;
     });
 
+    const jwtToken = issueJwtToken({
+      telegram_id: Number(userResult.telegram_id),
+      username: userResult.username,
+      first_name: userResult.first_name,
+    });
+
     res.json({
       success: true,
+      token: jwtToken,
       user: userResult,
     });
   } catch (error: any) {
@@ -467,6 +438,26 @@ apiRouter.post('/tasks/claim', async (req: Request, res: Response) => {
     const userCtx = resolveUserContext(req);
     const taskId = req.body?.task_id || 'telegram_channel';
     const reward = AURA_AGEN_SETTINGS.task_reward; // 2 AGEN
+
+    // Telegram Channel join verification via getChatMember
+    if (taskId === 'telegram_channel' && BOT_TOKEN && userCtx.telegram_id && userCtx.telegram_id > 10000) {
+      try {
+        const checkUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getChatMember?chat_id=@NEW_AURA_GEN&user_id=${userCtx.telegram_id}`;
+        const tgResp = await fetch(checkUrl);
+        const tgData: any = await tgResp.json();
+        if (tgData.ok && tgData.result) {
+          const status = tgData.result.status;
+          if (['left', 'kicked'].includes(status)) {
+            return res.status(400).json({
+              error: 'not-joined',
+              message: 'Please join @NEW_AURA_GEN channel on Telegram to claim this reward.',
+            });
+          }
+        }
+      } catch (tgErr) {
+        console.warn('Telegram getChatMember check bypassed:', tgErr);
+      }
+    }
 
     const result = await withTransaction(async (client) => {
       // Check if already completed
@@ -829,5 +820,97 @@ apiRouter.post('/admin/toggle-withdrawals', async (req: Request, res: Response) 
     res.json({ success: true, withdrawals_enabled: newVal });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// 14. Telegram Bot Webhook Route (/api/bot)
+apiRouter.get('/bot', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    bot: `@${AURA_AGEN_SETTINGS.bot_username}`,
+    webhook_active: true,
+    time: new Date().toISOString(),
+  });
+});
+
+apiRouter.post('/bot', async (req: Request, res: Response) => {
+  try {
+    const update = req.body;
+    const message = update?.message;
+
+    if (!message || !message.text) {
+      return res.status(200).json({ ok: true });
+    }
+
+    const chatId = message.chat?.id;
+    const text = message.text.trim();
+    const firstName = message.from?.first_name || 'Miner';
+
+    if (text.startsWith('/start')) {
+      const parts = text.split(' ');
+      const payload = parts.length > 1 ? parts[1].trim() : null;
+
+      let webAppUrl =
+        process.env.VITE_MINI_APP_URL ||
+        process.env.APP_URL ||
+        `https://t.me/${AURA_AGEN_SETTINGS.bot_username}/app`;
+
+      if (payload) {
+        webAppUrl += (webAppUrl.includes('?') ? '&' : '?') + `startapp=${encodeURIComponent(payload)}`;
+      }
+
+      let referralNotice = '';
+      if (payload) {
+        referralNotice = `\n🎁 *Invited via Referral:* Entered with code \`${payload}\`. Both you and your sponsor earn 50 AGEN!\n`;
+      }
+
+      const welcomeText = `💎 *Welcome to AURA_AGEN ($AGEN)* 💎
+
+Hello *${firstName}*! You have entered the official high-yield decentralized mining ecosystem on TON Mainnet.
+
+⚡ *Key Features:*
+• *Automated Server Mining:* Earn up to 921.60 AGEN/hr across 12 tiers.
+• *Referral Bounty:* Earn *50 AGEN* instantly for each referred miner.
+• *Monetag Ad Vault:* Earn 1 AGEN per completed session (up to 10 daily).
+• *Social Tasks:* Claim 2 AGEN for subscribing to @NEW_AURA_GEN.
+• *TON Treasury:* Seamless upgrades to treasury wallet \`${AURA_AGEN_SETTINGS.ton_receiver_wallet}\`.
+
+${referralNotice}
+Click the button below to launch the Mini App inside Telegram!`;
+
+      // Send telegram reply with WebApp inline button
+      if (BOT_TOKEN && chatId) {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: welcomeText,
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '⚡ Launch AURA_AGEN App',
+                    web_app: { url: webAppUrl },
+                  },
+                ],
+                [
+                  {
+                    text: '📢 Join Official Channel',
+                    url: AURA_AGEN_SETTINGS.telegram_channel,
+                  },
+                ],
+              ],
+            },
+          }),
+        }).catch((err) => console.error('Error sending Telegram message:', err));
+      }
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (error: any) {
+    console.error('Webhook error:', error);
+    return res.status(200).json({ ok: true, error: error.message });
   }
 });

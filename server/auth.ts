@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import { Request } from 'express';
 
 export interface TelegramUserData {
   id: number;
@@ -16,9 +18,37 @@ export interface VerifiedTelegramContext {
   is_valid: boolean;
 }
 
+export interface JwtPayload {
+  telegram_id: number;
+  username?: string;
+  first_name?: string;
+  iat?: number;
+  exp?: number;
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || 'aura_agen_secure_jwt_secret_99f8d38a7b1c4e';
+
+export function getBotToken(): string {
+  return (
+    process.env.TELEGRAM_BOT_TOKEN ||
+    process.env.BOT_TOKEN ||
+    process.env.VITE_BOT_TOKEN ||
+    ''
+  ).trim();
+}
+
+/**
+ * Validates Telegram WebApp initData string using HMAC-SHA256 with the bot token.
+ * Follows Telegram's official specification:
+ * - Sort keys alphabetically (excluding hash)
+ * - Data check string is key=value joined by \n
+ * - Secret key is HMAC-SHA256("WebAppData", bot_token)
+ * - Calculated hash is HMAC-SHA256(secret_key, data_check_string).hex()
+ * - Replay prevention: auth_date <= 86400s (24h)
+ */
 export function verifyTelegramInitData(
   initData: string,
-  botToken: string
+  explicitToken?: string
 ): VerifiedTelegramContext | null {
   if (!initData) return null;
 
@@ -27,11 +57,12 @@ export function verifyTelegramInitData(
     const hash = params.get('hash');
     if (!hash) return null;
 
-    // Check auth_date
+    // Check auth_date freshness
     const authDateStr = params.get('auth_date');
     if (!authDateStr) return null;
     const authDate = parseInt(authDateStr, 10);
     const now = Math.floor(Date.now() / 1000);
+
     // 24 hour freshness guard (86400 seconds)
     if (Math.abs(now - authDate) > 86400) {
       console.warn('Telegram initData expired. auth_date:', authDate, 'now:', now);
@@ -48,10 +79,13 @@ export function verifyTelegramInitData(
     }
     const dataCheckString = dataCheckArr.join('\n');
 
-    if (botToken) {
+    const token = explicitToken || getBotToken();
+
+    // If bot token is configured, perform strict cryptographic HMAC-SHA256 verification
+    if (token) {
       const secretKey = crypto
         .createHmac('sha256', 'WebAppData')
-        .update(botToken)
+        .update(token)
         .digest();
 
       const calculatedHash = crypto
@@ -83,4 +117,95 @@ export function verifyTelegramInitData(
     console.error('Error verifying Telegram initData:', err);
     return null;
   }
+}
+
+/**
+ * Issues a signed JWT token for authenticated users
+ */
+export function issueJwtToken(user: {
+  telegram_id: number;
+  username?: string;
+  first_name?: string;
+}): string {
+  return jwt.sign(
+    {
+      telegram_id: user.telegram_id,
+      username: user.username,
+      first_name: user.first_name,
+    },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+}
+
+/**
+ * Verifies and decodes a JWT token
+ */
+export function verifyJwtToken(token: string): JwtPayload | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as JwtPayload;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Extracts and authenticates user context from request:
+ * 1. Checks Authorization: Bearer <jwt>
+ * 2. Checks x-telegram-init-data header or body.initData (HMAC verification)
+ * 3. Graceful dev/browser testing fallback
+ */
+export function resolveUserContext(req: Request): {
+  telegram_id: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  start_param?: string;
+  auth_method: 'jwt' | 'telegram_init' | 'dev_fallback';
+} {
+  // 1. Check JWT Authorization Header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7).trim();
+    const decoded = verifyJwtToken(token);
+    if (decoded && decoded.telegram_id) {
+      return {
+        telegram_id: decoded.telegram_id,
+        username: decoded.username,
+        first_name: decoded.first_name,
+        auth_method: 'jwt',
+      };
+    }
+  }
+
+  // 2. Check Telegram initData
+  const initData =
+    (req.headers['x-telegram-init-data'] as string) || (req.body?.initData as string);
+
+  if (initData) {
+    const verified = verifyTelegramInitData(initData, getBotToken());
+    if (verified && verified.user?.id) {
+      return {
+        telegram_id: verified.user.id,
+        username: verified.user.username,
+        first_name: verified.user.first_name,
+        last_name: verified.user.last_name,
+        start_param: verified.start_param,
+        auth_method: 'telegram_init',
+      };
+    }
+  }
+
+  // 3. Fallback for local dev/browser preview
+  const rawId = req.headers['x-telegram-id'] || req.query.telegram_id || req.body?.telegram_id;
+  const tid = rawId ? parseInt(String(rawId), 10) : 100000001;
+
+  return {
+    telegram_id: isNaN(tid) ? 100000001 : tid,
+    username: (req.body?.username as string) || 'agen_miner',
+    first_name: (req.body?.first_name as string) || 'Explorer',
+    last_name: req.body?.last_name as string,
+    start_param: req.body?.start_param as string,
+    auth_method: 'dev_fallback',
+  };
 }
