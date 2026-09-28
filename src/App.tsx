@@ -71,8 +71,12 @@ export default function App() {
     async function initUser() {
       try {
         setIsLoading(true);
+        // Extract referral param from URL if present (e.g. ?startapp=REF_123 or ?start=REF_123)
+        const urlParams = new URLSearchParams(window.location.search);
+        const refFromUrl = urlParams.get('startapp') || urlParams.get('start') || urlParams.get('ref');
+
         // Authenticate user with server
-        await api.authenticate();
+        await api.authenticate(undefined, refFromUrl || undefined);
         // Load initial state
         const userState = await api.getState();
         setState(userState);

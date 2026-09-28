@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { Request } from 'express';
+import type { VercelRequest } from '../types';
 
 export interface TelegramUserData {
   id: number;
@@ -39,12 +39,11 @@ export function getBotToken(): string {
 
 /**
  * Validates Telegram WebApp initData string using HMAC-SHA256 with the bot token.
- * Follows Telegram's official specification:
+ * Follows Telegram official specification:
  * - Sort keys alphabetically (excluding hash)
  * - Data check string is key=value joined by \n
  * - Secret key is HMAC-SHA256("WebAppData", bot_token)
  * - Calculated hash is HMAC-SHA256(secret_key, data_check_string).hex()
- * - Replay prevention: auth_date <= 86400s (24h)
  */
 export function verifyTelegramInitData(
   initData: string,
@@ -57,19 +56,17 @@ export function verifyTelegramInitData(
     const hash = params.get('hash');
     if (!hash) return null;
 
-    // Check auth_date freshness
     const authDateStr = params.get('auth_date');
     if (!authDateStr) return null;
     const authDate = parseInt(authDateStr, 10);
     const now = Math.floor(Date.now() / 1000);
 
-    // 24 hour freshness guard (86400 seconds)
+    // 24 hour freshness guard
     if (Math.abs(now - authDate) > 86400) {
       console.warn('Telegram initData expired. auth_date:', authDate, 'now:', now);
       return null;
     }
 
-    // Build data-check-string
     const dataCheckArr: string[] = [];
     params.delete('hash');
 
@@ -81,7 +78,6 @@ export function verifyTelegramInitData(
 
     const token = explicitToken || getBotToken();
 
-    // If bot token is configured, perform strict cryptographic HMAC-SHA256 verification
     if (token) {
       const secretKey = crypto
         .createHmac('sha256', 'WebAppData')
@@ -94,17 +90,15 @@ export function verifyTelegramInitData(
         .digest('hex');
 
       if (calculatedHash !== hash) {
-        console.warn('Telegram HMAC signature mismatch - falling back to initData parsed parameters');
-        // Graceful fallback for dev/preview environments: parse user anyway
+        console.warn('Telegram HMAC signature mismatch - falling back to parsed payload');
         const userRaw = params.get('user');
         if (userRaw) {
           try {
-            const user = JSON.parse(userRaw);
             return {
-              user,
+              user: JSON.parse(userRaw),
               auth_date: authDate,
               start_param: params.get('start_param') || undefined,
-              is_valid: false, // signature mismatch but parsed
+              is_valid: false,
             };
           } catch {
             return null;
@@ -134,9 +128,6 @@ export function verifyTelegramInitData(
   }
 }
 
-/**
- * Issues a signed JWT token for authenticated users
- */
 export function issueJwtToken(user: {
   telegram_id: number;
   username?: string;
@@ -153,25 +144,15 @@ export function issueJwtToken(user: {
   );
 }
 
-/**
- * Verifies and decodes a JWT token
- */
 export function verifyJwtToken(token: string): JwtPayload | null {
   try {
     return jwt.verify(token, JWT_SECRET) as JwtPayload;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Extracts and authenticates user context from request:
- * 1. Checks Authorization: Bearer <jwt>
- * 2. Checks x-telegram-init-data header or body.initData (HMAC verification)
- * 3. Checks body.initDataUnsafe (graceful fallback)
- * 4. Fallback for local dev/browser preview
- */
-export function resolveUserContext(req: Request): {
+export function resolveVercelUserContext(req: VercelRequest): {
   telegram_id: number;
   username?: string;
   first_name?: string;
@@ -179,8 +160,7 @@ export function resolveUserContext(req: Request): {
   start_param?: string;
   auth_method: 'jwt' | 'telegram_init' | 'unsafe_fallback' | 'dev_fallback';
 } {
-  // 1. Check JWT Authorization Header
-  const authHeader = req.headers?.authorization;
+  const authHeader = (req.headers?.authorization || req.headers?.Authorization) as string;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7).trim();
     const decoded = verifyJwtToken(token);
@@ -194,7 +174,6 @@ export function resolveUserContext(req: Request): {
     }
   }
 
-  // 2. Check Telegram initData (HMAC verification)
   const initData =
     (req.headers?.['x-telegram-init-data'] as string) || (req.body?.initData as string);
 
@@ -206,13 +185,12 @@ export function resolveUserContext(req: Request): {
         username: verified.user.username,
         first_name: verified.user.first_name,
         last_name: verified.user.last_name,
-        start_param: verified.start_param || req.body?.start_param,
+        start_param: verified.start_param || req.body?.start_param || req.body?.referral_code,
         auth_method: verified.is_valid ? 'telegram_init' : 'unsafe_fallback',
       };
     }
   }
 
-  // 3. Graceful fallback to initDataUnsafe from Telegram WebApp
   const unsafe = req.body?.initDataUnsafe;
   if (unsafe && unsafe.user && unsafe.user.id) {
     return {
@@ -225,7 +203,6 @@ export function resolveUserContext(req: Request): {
     };
   }
 
-  // 4. Fallback for local dev/browser preview
   const rawId = req.headers?.['x-telegram-id'] || req.query?.telegram_id || req.body?.telegram_id;
   const tid = rawId ? parseInt(String(rawId), 10) : 100000001;
 
@@ -234,7 +211,7 @@ export function resolveUserContext(req: Request): {
     username: (req.body?.username as string) || 'agen_miner',
     first_name: (req.body?.first_name as string) || 'Explorer',
     last_name: req.body?.last_name as string,
-    start_param: req.body?.start_param as string || req.body?.referral_code as string,
+    start_param: (req.body?.start_param as string) || (req.body?.referral_code as string),
     auth_method: 'dev_fallback',
   };
 }

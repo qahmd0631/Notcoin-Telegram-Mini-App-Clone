@@ -76,19 +76,32 @@ const getHeaders = () => {
 
 export const api = {
   async authenticate(initData?: string, referralCode?: string) {
-    const res = await fetch('/api/auth/telegram', {
+    const payload = {
+      initData: initData || window.Telegram?.WebApp?.initData || '',
+      initDataUnsafe: window.Telegram?.WebApp?.initDataUnsafe,
+      referral_code: referralCode,
+      telegram_id: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+      username: window.Telegram?.WebApp?.initDataUnsafe?.user?.username,
+      first_name: window.Telegram?.WebApp?.initDataUnsafe?.user?.first_name,
+      last_name: window.Telegram?.WebApp?.initDataUnsafe?.user?.last_name,
+      start_param: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
+    };
+
+    let res = await fetch('/api/auth/telegram', {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({
-        initData: initData || window.Telegram?.WebApp?.initData || '',
-        referral_code: referralCode,
-        telegram_id: window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
-        username: window.Telegram?.WebApp?.initDataUnsafe?.user?.username,
-        first_name: window.Telegram?.WebApp?.initDataUnsafe?.user?.first_name,
-        last_name: window.Telegram?.WebApp?.initDataUnsafe?.user?.last_name,
-        start_param: window.Telegram?.WebApp?.initDataUnsafe?.start_param,
-      }),
-    });
+      body: JSON.stringify(payload),
+    }).catch(() => null);
+
+    // Fallback to /api/user for Vercel functions compatibility
+    if (!res || !res.ok) {
+      res = await fetch('/api/user', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || err.message || 'Auth failed');
@@ -104,10 +117,19 @@ export const api = {
   },
 
   async getState(): Promise<UserStateResponse> {
-    const res = await fetch('/api/user/state', {
+    let res = await fetch('/api/user/state', {
       method: 'GET',
       headers: getHeaders(),
-    });
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      // Fallback to /api/sync
+      res = await fetch('/api/sync', {
+        method: 'GET',
+        headers: getHeaders(),
+      });
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || err.message || 'Failed to fetch state');
@@ -115,12 +137,33 @@ export const api = {
     return res.json();
   },
 
+  async sync(): Promise<{ success: boolean; user: any; server_time: string }> {
+    const res = await fetch('/api/sync', {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || 'Sync failed');
+    }
+    return res.json();
+  },
+
   async claimMining(): Promise<{ claimed_amount: number; new_balance: number; last_claim_at: string }> {
-    const res = await fetch('/api/mining/claim', {
+    let res = await fetch('/api/claim', {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
-    });
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      res = await fetch('/api/mining/claim', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({}),
+      });
+    }
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || err.message || 'Claim failed');

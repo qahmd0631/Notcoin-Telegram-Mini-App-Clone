@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from './types';
+import { applyCors } from './lib/cors';
 
 const BOT_USERNAME = process.env.VITE_TELEGRAM_BOT_USERNAME || 'AURA_AGENBOT';
 const MINI_APP_URL =
@@ -8,6 +9,8 @@ const MINI_APP_URL =
 const CHANNEL_URL = process.env.VITE_TELEGRAM_CHANNEL || 'https://t.me/NEW_AURA_GEN';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (applyCors(req, res)) return;
+
   if (req.method === 'GET') {
     return res.status(200).json({
       status: 'ok',

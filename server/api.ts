@@ -14,7 +14,7 @@ export const apiRouter = Router();
 const BOT_TOKEN = getBotToken();
 
 // 1. Telegram Auth & User Session
-apiRouter.post('/auth/telegram', async (req: Request, res: Response) => {
+const handleAuthUser = async (req: Request, res: Response) => {
   try {
     const userCtx = resolveUserContext(req);
     const referralCodeParam = req.body?.referral_code || userCtx.start_param;
@@ -134,7 +134,10 @@ apiRouter.post('/auth/telegram', async (req: Request, res: Response) => {
     console.error('Auth error:', error);
     res.status(500).json({ error: error.message || 'Authentication failed' });
   }
-});
+};
+
+apiRouter.post('/auth/telegram', handleAuthUser);
+apiRouter.post('/user', handleAuthUser);
 
 // 2. User State (Mining calculation & dashboard summary)
 apiRouter.get('/user/state', async (req: Request, res: Response) => {
@@ -213,7 +216,7 @@ apiRouter.get('/user/state', async (req: Request, res: Response) => {
 });
 
 // 3. Mining Claim (Atomic row locking and balance update)
-apiRouter.post('/mining/claim', async (req: Request, res: Response) => {
+const handleMiningClaim = async (req: Request, res: Response) => {
   try {
     const userCtx = resolveUserContext(req);
 
@@ -293,7 +296,10 @@ apiRouter.post('/mining/claim', async (req: Request, res: Response) => {
     console.error('Claim error:', error);
     res.status(400).json({ error: error.message || 'Failed to claim mining rewards' });
   }
-});
+};
+
+apiRouter.post('/mining/claim', handleMiningClaim);
+apiRouter.post('/claim', handleMiningClaim);
 
 // 4. Ads: Initiate Session (Generate single-use signed nonce)
 apiRouter.post('/ads/initiate', async (req: Request, res: Response) => {
@@ -912,5 +918,81 @@ Click the button below to launch the Mini App inside Telegram!`;
   } catch (error: any) {
     console.error('Webhook error:', error);
     return res.status(200).json({ ok: true, error: error.message });
+  }
+});
+
+// 15. Explicit Aliases: /api/user (GET), /api/sync
+apiRouter.get('/user', async (req: Request, res: Response) => {
+  const userCtx = resolveUserContext(req);
+  try {
+    const uRes = await query('SELECT * FROM users WHERE telegram_id = $1', [userCtx.telegram_id]);
+    if (uRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    return res.json({ user: uRes.rows[0] });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+apiRouter.all('/sync', async (req: Request, res: Response) => {
+  try {
+    const userCtx = resolveUserContext(req);
+    const userRes = await query('SELECT * FROM users WHERE telegram_id = $1', [userCtx.telegram_id]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User record not found' });
+    }
+
+    const user = userRes.rows[0];
+    const now = new Date();
+    const lastClaim = new Date(user.last_claim_at || user.mining_started_at || now);
+    const elapsedSeconds = Math.max(0, (now.getTime() - lastClaim.getTime()) / 1000);
+    const hourlyRate = Number(user.mining_rate) || 0.45;
+    const claimable = Number(((elapsedSeconds / 3600) * hourlyRate).toFixed(4));
+
+    res.json({
+      success: true,
+      server_time: now.toISOString(),
+      user: {
+        ...user,
+        balance_agen: Number(user.balance_agen),
+        claimable_agen: claimable,
+        mining_rate: hourlyRate,
+        elapsed_seconds: Math.floor(elapsedSeconds),
+      },
+    });
+  } catch (error: any) {
+    console.error('Sync error:', error);
+    res.status(500).json({ error: error.message || 'Sync failed' });
+  }
+});
+
+apiRouter.get('/referrals', async (req: Request, res: Response) => {
+  try {
+    const userCtx = resolveUserContext(req);
+    const { rows } = await query(
+      `SELECT telegram_id, username, first_name, level, created_at
+       FROM users 
+       WHERE referred_by = $1
+       ORDER BY created_at DESC`,
+      [String(userCtx.telegram_id)]
+    );
+    res.json(rows);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/user/balance', async (req: Request, res: Response) => {
+  try {
+    const userCtx = resolveUserContext(req);
+    const points = req.body?.points ?? req.body?.balance_agen;
+    if (points === undefined) return res.status(400).json({ error: 'Points required' });
+
+    const { rows } = await query(
+      'UPDATE users SET balance_agen = $1, updated_at = NOW() WHERE telegram_id = $2 RETURNING *',
+      [Number(points), userCtx.telegram_id]
+    );
+    res.json({ user: rows[0] });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
