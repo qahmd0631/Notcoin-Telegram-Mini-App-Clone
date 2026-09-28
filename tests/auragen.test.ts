@@ -67,8 +67,16 @@ test('duplicate task reward prevention', () => {
 });
 
 test('ad daily limit', () => {
-  const result = applyDailyAdReward(10);
-  assert.deepEqual(result, { allowed: false, amount: 0, reason: 'daily-limit-reached' });
+  const result10 = applyDailyAdReward(10);
+  assert.deepEqual(result10, { allowed: false, amount: 0, reason: 'daily-limit-reached' });
+  const result11 = applyDailyAdReward(11);
+  assert.deepEqual(result11, { allowed: false, amount: 0, reason: 'daily-limit-reached' });
+});
+
+test('conversion baseline constant 100 AGEN = 0.1 TON', () => {
+  const level1 = getLevelDefinition(1);
+  const conversionRate = level1.ton_amount / level1.agen_amount; // 0.1 / 100 = 0.001
+  assert.equal(conversionRate, 0.001);
 });
 
 test('duplicate ad reward prevention', () => {

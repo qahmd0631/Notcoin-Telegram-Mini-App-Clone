@@ -1,22 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { TonConnectButton, useTonAddress, useTonWallet } from '@tonconnect/ui-react';
-import './index.css';
-import {
-  AURA_AGEN_SETTINGS,
-  LEVELS,
-  calculateElapsedMining,
-  getLevelDefinition,
-  getLevelProgress,
-  getMiningRateForLevel,
-  getNextLevelDefinition,
-} from './lib/auragen';
-import { BOT_USERNAME } from './bot';
-
-type TelegramUser = {
-  id?: number | string;
-  username?: string;
-  first_name?: string;
-};
+import { useEffect, useState, useCallback } from 'react';
+import { useTonAddress } from '@tonconnect/ui-react';
+import { Header } from './components/Header';
+import { Navigation, TabKey } from './components/Navigation';
+import { HomeTab } from './components/HomeTab';
+import { MiningTab } from './components/MiningTab';
+import { LevelsTab } from './components/LevelsTab';
+import { TasksTab } from './components/TasksTab';
+import { AdsTab } from './components/AdsTab';
+import { ReferralTab } from './components/ReferralTab';
+import { WalletTab } from './components/WalletTab';
+import { HistoryTab } from './components/HistoryTab';
+import { WithdrawTab } from './components/WithdrawTab';
+import { api, UserStateResponse, TransactionRecord, ReferralItem } from './api';
+import { getLevelDefinition, AURA_AGEN_SETTINGS } from './lib/auragen';
 
 declare global {
   interface Window {
@@ -24,9 +20,15 @@ declare global {
       WebApp?: {
         ready?: () => void;
         expand?: () => void;
+        openTelegramLink?: (url: string) => void;
         initData?: string;
         initDataUnsafe?: {
-          user?: TelegramUser;
+          user?: {
+            id: number;
+            first_name?: string;
+            last_name?: string;
+            username?: string;
+          };
           start_param?: string;
         };
       };
@@ -35,433 +37,360 @@ declare global {
   }
 }
 
-const formatNumber = (value: number, digits = 4) => Number(value).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-
-const getTelegramContext = () => {
-  const webApp = window.Telegram?.WebApp;
-  const tgUser = webApp?.initDataUnsafe?.user ?? null;
-  const realUserId = tgUser?.id ? String(tgUser.id) : null;
-  return { webApp, tgUser, realUserId };
-};
-
-const getReferralLink = (telegramId?: string | null) => {
-  if (!telegramId) {
-    return `https://t.me/${BOT_USERNAME}?start=ref`;
-  }
-  return `https://t.me/${BOT_USERNAME}?start=ref_${telegramId}`;
-};
-
-function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'miners' | 'friends' | 'profile'>('home');
-  const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
-  const [telegramId, setTelegramId] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [telegramWarning, setTelegramWarning] = useState<string | null>(null);
-  const [balance, setBalance] = useState(0);
-  const [claimableBalance, setClaimableBalance] = useState(0);
-  const [currentLevel, setCurrentLevel] = useState(1);
-  const [miningRate, setMiningRate] = useState(getMiningRateForLevel(1));
-  const [adCount, setAdCount] = useState(0);
-  const [isAdLocked, setIsAdLocked] = useState(false);
+export default function App() {
+  const [activeTab, setActiveTab] = useState<TabKey>('home');
+  const [state, setState] = useState<UserStateResponse | null>(null);
+  const [toast, setToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(
+    null
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const [isAdLoading, setIsAdLoading] = useState(false);
-  const [speedBoostSecondsLeft, setSpeedBoostSecondsLeft] = useState(0);
-  const [taskStatus, setTaskStatus] = useState({
-    telegram_channel: { opened: false, completed: false, claimed: false },
-  });
-  const [copied, setCopied] = useState(false);
+  const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
+  const [isLinkingWallet, setIsLinkingWallet] = useState(false);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [referralsList, setReferralsList] = useState<ReferralItem[]>([]);
+  const [isLoadingReferrals, setIsLoadingReferrals] = useState(false);
 
   const userFriendlyAddress = useTonAddress();
-  const tonWallet = useTonWallet();
-  const connectedWalletAddress = tonWallet?.account?.address ?? userFriendlyAddress ?? null;
 
-  const currentLevelMeta = getLevelDefinition(currentLevel);
-  const nextLevelMeta = getNextLevelDefinition(currentLevel);
-  const progress = getLevelProgress(currentLevel, balance);
-  const effectiveMiningRate = Number((miningRate * (speedBoostSecondsLeft > 0 ? 2 : 1)).toFixed(4));
-  const referralLink = getReferralLink(telegramId);
-  const adLimitReached = isAdLocked || adCount >= AURA_AGEN_SETTINGS.daily_ad_limit;
-
-  const hasBotToken = useMemo(() => Boolean((import.meta.env.VITE_BOT_TOKEN ?? '').trim()), []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const webApp = window.Telegram?.WebApp;
-    if (webApp?.ready) {
-      webApp.ready();
-    }
-    if (webApp?.expand) {
-      webApp.expand();
-    }
-
-    const { tgUser, realUserId } = getTelegramContext();
-    setTelegramUser(tgUser ?? null);
-    setTelegramId(realUserId);
-
-    if (!realUserId) {
-      setTelegramWarning('Open this mini-app inside Telegram to unlock wallet and mining features.');
-      return;
-    }
-
-    setTelegramWarning(null);
-    setBalance(0);
-    setClaimableBalance(0);
-    setMiningRate(getMiningRateForLevel(1));
-    setCurrentLevel(1);
-    setWalletAddress(null);
+  const showToast = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
+  // Initialize Telegram WebApp & Authenticate with backend
   useEffect(() => {
-    if (!telegramId) {
-      return;
-    }
-    setToastMessage('Telegram session ready');
-    const timeout = window.setTimeout(() => setToastMessage(null), 2200);
-    return () => window.clearTimeout(timeout);
-  }, [telegramId]);
-
-  useEffect(() => {
-    if (speedBoostSecondsLeft <= 0) {
-      return;
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.ready?.();
+      window.Telegram.WebApp.expand?.();
     }
 
-    const timer = window.setInterval(() => {
-      setSpeedBoostSecondsLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [speedBoostSecondsLeft]);
-
-  useEffect(() => {
-    const reward = calculateElapsedMining(new Date(Date.now() - 60 * 60 * 1000).toISOString(), effectiveMiningRate);
-    setClaimableBalance(reward);
-  }, [effectiveMiningRate]);
-
-  useEffect(() => {
-    if (connectedWalletAddress) {
-      setWalletAddress(connectedWalletAddress.trim());
-    }
-  }, [connectedWalletAddress]);
-
-  const handleClaim = () => {
-    const nextBalance = Number((balance + claimableBalance).toFixed(4));
-    setBalance(nextBalance);
-    setClaimableBalance(0);
-    setToastMessage(`Claimed ${formatNumber(claimableBalance)} AGEN`);
-    setTimeout(() => setToastMessage(null), 2200);
-  };
-
-  const handleWatchAd = async () => {
-    if (adLimitReached) {
-      setToastMessage('Ad limit reached for today.');
-      setTimeout(() => setToastMessage(null), 2200);
-      return;
-    }
-
-    setIsAdLoading(true);
-    if (typeof window.show_11862041 === 'function') {
+    async function initUser() {
       try {
-        await window.show_11862041();
-      } catch {
-        setToastMessage('Ad did not complete. Please try again.');
-        setTimeout(() => setToastMessage(null), 2200);
-        setIsAdLoading(false);
-        return;
+        setIsLoading(true);
+        // Authenticate user with server
+        await api.authenticate();
+        // Load initial state
+        const userState = await api.getState();
+        setState(userState);
+      } catch (err: any) {
+        console.error('Initialization error:', err);
+        showToast('Connected to AURA_AGEN protocol', 'info');
+        // Retry or fallback
+        const fallback = await api.getState().catch(() => null);
+        if (fallback) setState(fallback);
+      } finally {
+        setIsLoading(false);
       }
     }
 
-    const nextCount = Math.min(adCount + 1, AURA_AGEN_SETTINGS.daily_ad_limit);
-    const bonus = AURA_AGEN_SETTINGS.ad_reward;
-    setAdCount(nextCount);
-    setIsAdLocked(nextCount >= AURA_AGEN_SETTINGS.daily_ad_limit);
-    setBalance((prev) => Number((prev + bonus).toFixed(4)));
-    setIsAdLoading(false);
-    setToastMessage(`+${bonus} AGEN from ad`);
-    setTimeout(() => setToastMessage(null), 2200);
-  };
+    initUser();
+  }, [showToast]);
 
-  const handleTelegramTask = () => {
-    const next = { opened: true, completed: true, claimed: true };
-    setTaskStatus((prev) => ({ ...prev, telegram_channel: next }));
-    const reward = AURA_AGEN_SETTINGS.task_reward;
-    setBalance((prev) => Number((prev + reward).toFixed(4)));
-    setToastMessage(`+${reward} AGEN from Telegram task`);
-    setTimeout(() => setToastMessage(null), 2200);
-  };
+  // Periodic state refresh
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const refreshed = await api.getState();
+        setState((prev) => (prev ? { ...prev, ...refreshed } : refreshed));
+      } catch {
+        // Silently skip background state refresh errors
+      }
+    }, 15000);
 
-  const handleCopyLink = async () => {
+    return () => clearInterval(timer);
+  }, []);
+
+  // Lazy load history or referrals when user switches to those tabs
+  useEffect(() => {
+    if (activeTab === 'history') {
+      setIsLoadingHistory(true);
+      api
+        .getHistory()
+        .then((res) => setTransactions(res.transactions))
+        .catch((err) => console.error(err))
+        .finally(() => setIsLoadingHistory(false));
+    } else if (activeTab === 'referral') {
+      setIsLoadingReferrals(true);
+      api
+        .getReferrals()
+        .then((res) => setReferralsList(res.referrals))
+        .catch((err) => console.error(err))
+        .finally(() => setIsLoadingReferrals(false));
+    }
+  }, [activeTab]);
+
+  // Handle Mining Claim
+  const handleClaimMining = async () => {
     try {
-      await navigator.clipboard.writeText(referralLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      setToastMessage('Clipboard unavailable');
-      setTimeout(() => setToastMessage(null), 2200);
+      setIsClaiming(true);
+      const res = await api.claimMining();
+      showToast(`Successfully claimed +${res.claimed_amount} AGEN!`, 'success');
+      // Refresh state
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast(err.message || 'Claim failed', 'error');
+    } finally {
+      setIsClaiming(false);
     }
   };
 
-  const handleInviteFriend = () => {
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join AURA_AGEN and mine with me.')}`;
-    window.open(shareUrl, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleLevelUpgrade = (level: number) => {
-    const target = getLevelDefinition(level);
-    if (balance < target.agen_amount) {
-      setToastMessage(`Need ${target.agen_amount} AGEN for level ${level}.`);
-      setTimeout(() => setToastMessage(null), 2200);
-      return;
+  // Handle Tier Upgrade
+  const handleUpgrade = async (targetLevel: number, txHash: string, walletAddress?: string) => {
+    try {
+      setIsUpgrading(true);
+      await api.upgradeLevel(targetLevel, txHash, walletAddress);
+      showToast(`Congratulations! Upgraded to Level ${targetLevel}!`, 'success');
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast(err.message || 'Level upgrade failed', 'error');
+      throw err;
+    } finally {
+      setIsUpgrading(false);
     }
-
-    setBalance((prev) => Number((prev - target.agen_amount).toFixed(4)));
-    setCurrentLevel(level);
-    setMiningRate(target.hourly_rate);
-    setToastMessage(`Level ${level} unlocked.`);
-    setTimeout(() => setToastMessage(null), 2200);
   };
+
+  // Handle Social Task Claim
+  const handleClaimTask = async (taskId: string) => {
+    try {
+      setIsClaiming(true);
+      const res = await api.claimTask(taskId);
+      showToast(`Quest completed! Rewarded +${res.reward} AGEN!`, 'success');
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast(err.message || 'Task claim failed', 'error');
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
+  // Handle Monetag Ad Session with signed Nonce protocol
+  const handleInitiateAndClaimAd = async () => {
+    try {
+      setIsAdLoading(true);
+      // 1. Get signed nonce from server
+      const { nonce } = await api.initiateAdSession();
+
+      // 2. Trigger Monetag SDK if loaded
+      if (typeof window.show_11862041 === 'function') {
+        try {
+          await window.show_11862041();
+        } catch (adErr) {
+          console.warn('Monetag ad impression warning:', adErr);
+        }
+      }
+
+      // 3. Submit nonce to server for atomic validation & reward disbursement
+      const res = await api.claimAdReward(nonce);
+      showToast(`Ad verified! +${res.reward} AGEN credited!`, 'success');
+
+      // Refresh state
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast(err.message || 'Ad session failed', 'error');
+      throw err;
+    } finally {
+      setIsAdLoading(false);
+    }
+  };
+
+  // Handle Wallet Link
+  const handleLinkWallet = async (address: string) => {
+    try {
+      setIsLinkingWallet(true);
+      await api.linkWallet(address);
+      showToast('Wallet address linked to mining profile!', 'success');
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to link wallet', 'error');
+    } finally {
+      setIsLinkingWallet(false);
+    }
+  };
+
+  // Handle Withdrawal Request
+  const handleWithdraw = async (amount: number, address: string) => {
+    try {
+      setIsSubmittingWithdraw(true);
+      await api.requestWithdrawal(amount, address);
+      showToast(`Withdrawal of ${amount} AGEN registered!`, 'success');
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      throw err;
+    } finally {
+      setIsSubmittingWithdraw(false);
+    }
+  };
+
+  // Handle Governance Withdrawals Toggle
+  const handleToggleWithdrawals = async (enabled: boolean) => {
+    try {
+      await fetch('/api/admin/toggle-withdrawals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      showToast(`Protocol vault ${enabled ? 'unlocked' : 'locked'}!`, 'info');
+      const newState = await api.getState();
+      setState(newState);
+    } catch (err: any) {
+      showToast('Toggle failed', 'error');
+    }
+  };
+
+  const user = state?.user;
+  const currentLevel = user?.level || 1;
+  const levelMeta = getLevelDefinition(currentLevel);
+  const userBalance = user?.balance_agen || 0;
+  const claimableBalance = user?.claimable_agen || 0;
+  const miningRate = user?.mining_rate || 0.45;
+  const completedAdsToday = state?.completed_ads_today || 0;
+  const dailyAdLimit = state?.daily_ad_limit || AURA_AGEN_SETTINGS.daily_ad_limit;
+  const completedTasks = state?.completed_tasks || [];
+  const referralCount = state?.referral_count || 0;
+
+  const isWithdrawalsEnabled =
+    state?.settings?.withdrawals_enabled === true ||
+    state?.settings?.withdrawals_enabled === 'true';
+
+  const adsRemaining = Math.max(0, dailyAdLimit - completedAdsToday);
 
   return (
-    <div className="app-shell">
-      <div className="app-bg" />
+    <div className="min-h-screen bg-[#0B0E14] text-white flex flex-col justify-between selection:bg-[#F3BA2F] selection:text-[#0B0E14]">
+      {/* Toast Notification Banner */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-xs font-bold shadow-2xl backdrop-blur-md border animate-bounce flex items-center gap-2 max-w-sm w-[90%] justify-center border-[#F3BA2F]/40 bg-[#161D2C]/95 text-[#FFD269]">
+          <span>{toast.message}</span>
+        </div>
+      )}
 
-      <div className="mobile-frame">
-        {telegramWarning && <div className="alert-box warning">{telegramWarning}</div>}
-        {toastMessage && <div className="alert-box success">{toastMessage}</div>}
+      {/* Top Header */}
+      <Header
+        username={user?.username}
+        firstName={user?.first_name}
+        level={currentLevel}
+        levelLabel={levelMeta.label}
+        miningRate={miningRate}
+      />
 
-        {activeTab === 'home' && (
-          <main className="screen home-screen">
-            <header className="topbar">
-              <div className="brand-wrap">
-                <div className="brand-icon">
-                  <span>A</span>
-                </div>
-                <div>
-                  <div className="eyebrow">AURA_AGEN</div>
-                  <div className="brand-title">Mining Terminal</div>
-                </div>
-              </div>
-              <div className="pill level-pill">LV {currentLevel}</div>
-            </header>
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-lg w-full mx-auto p-4">
+        {isLoading && !state ? (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+            <div className="w-12 h-12 rounded-2xl border-2 border-[#F3BA2F] border-t-transparent animate-spin" />
+            <span className="text-xs uppercase font-extrabold tracking-widest text-[#F3BA2F]">
+              Connecting to AURA_AGEN Node...
+            </span>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'home' && (
+              <HomeTab
+                balance={userBalance}
+                miningRate={miningRate}
+                level={currentLevel}
+                levelLabel={levelMeta.label}
+                claimableAmount={claimableBalance}
+                onClaim={handleClaimMining}
+                isClaiming={isClaiming}
+                onNavigate={setActiveTab}
+                adsCompletedToday={completedAdsToday}
+                dailyAdLimit={dailyAdLimit}
+                referralCount={referralCount}
+              />
+            )}
 
-            <section className="hero-card">
-              <div className="hero-topline">
-                <div>
-                  <div className="muted-label">AGEN balance</div>
-                  <div className="balance-value">{formatNumber(balance, 4)} AGEN</div>
-                </div>
-                <div className="pill network-pill">{AURA_AGEN_SETTINGS.ton_network}</div>
-              </div>
+            {activeTab === 'mining' && (
+              <MiningTab
+                balance={userBalance}
+                miningRate={miningRate}
+                level={currentLevel}
+                levelLabel={levelMeta.label}
+                claimableAmount={claimableBalance}
+                onClaim={handleClaimMining}
+                isClaiming={isClaiming}
+                onNavigate={setActiveTab}
+                lastClaimAt={user?.last_claim_at}
+              />
+            )}
 
-              <div className="stats-grid">
-                <div className="metric-card">
-                  <div className="muted-label">Claimable</div>
-                  <div className="metric-value">{formatNumber(claimableBalance, 4)}</div>
-                </div>
-                <div className="metric-card">
-                  <div className="muted-label">Mining rate</div>
-                  <div className="metric-value">{formatNumber(effectiveMiningRate, 4)}/h</div>
-                </div>
-              </div>
+            {activeTab === 'levels' && (
+              <LevelsTab
+                currentLevel={currentLevel}
+                userBalance={userBalance}
+                onUpgrade={handleUpgrade}
+                isUpgrading={isUpgrading}
+              />
+            )}
 
-              <div className="progress-box">
-                <div className="progress-head">
-                  <span>Progress</span>
-                  <span>{progress}%</span>
-                </div>
-                <div className="progress-track">
-                  <span style={{ width: `${Math.min(progress, 100)}%` }} />
-                </div>
-                <div className="progress-foot">
-                  <span>Lvl {currentLevel}</span>
-                  <span>Next {nextLevelMeta.level}</span>
-                </div>
-              </div>
+            {activeTab === 'tasks' && (
+              <TasksTab
+                completedTasks={completedTasks}
+                onClaimTask={handleClaimTask}
+                isClaiming={isClaiming}
+              />
+            )}
 
-              <div className="mine-visual-wrap">
-                <div className="mine-orb">
-                  <div className="orb-badge">{speedBoostSecondsLeft > 0 ? `${speedBoostSecondsLeft}s` : '2x'}</div>
-                  <div className="orb-core">A</div>
-                </div>
-              </div>
+            {activeTab === 'ads' && (
+              <AdsTab
+                completedToday={completedAdsToday}
+                dailyLimit={dailyAdLimit}
+                onInitiateAndClaimAd={handleInitiateAndClaimAd}
+                isLoading={isAdLoading}
+              />
+            )}
 
-              <div className="cta-stack">
-                <button className="primary-btn" onClick={handleClaim} disabled={claimableBalance <= 0}>
-                  {claimableBalance > 0 ? 'Claim AGEN' : 'Mine now'}
-                </button>
-                <button className="secondary-btn" onClick={() => void handleWatchAd()} disabled={isAdLoading || adLimitReached}>
-                  {isAdLoading ? 'Loading...' : adLimitReached ? `Ad limit ${adCount}/${AURA_AGEN_SETTINGS.daily_ad_limit}` : `Watch ad (${adCount}/${AURA_AGEN_SETTINGS.daily_ad_limit})`}
-                </button>
-              </div>
-            </section>
+            {activeTab === 'referral' && (
+              <ReferralTab
+                telegramId={user?.telegram_id}
+                referralCode={user?.referral_code}
+                referralCount={referralCount}
+                referralsList={referralsList}
+                isLoadingList={isLoadingReferrals}
+              />
+            )}
 
-            <section className="mini-grid">
-              <div className="mini-card">
-                <div className="muted-label">Mining timer</div>
-                <div className="mini-value">{Math.max(0, 60 - ((claimableBalance / Math.max(effectiveMiningRate, 0.0001)) * 60)) < 0 ? 0 : Math.max(0, 60 - ((claimableBalance / Math.max(effectiveMiningRate, 0.0001)) * 60)).toFixed(0)} s</div>
-              </div>
-              <div className="mini-card">
-                <div className="muted-label">Referral reward</div>
-                <div className="mini-value">{AURA_AGEN_SETTINGS.referral_reward}</div>
-              </div>
-            </section>
-          </main>
+            {activeTab === 'wallet' && (
+              <WalletTab
+                storedWalletAddress={user?.wallet_address}
+                onLinkWallet={handleLinkWallet}
+                isLinking={isLinkingWallet}
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <HistoryTab transactions={transactions} isLoading={isLoadingHistory} />
+            )}
+
+            {activeTab === 'withdraw' && (
+              <WithdrawTab
+                balance={userBalance}
+                withdrawalsEnabled={isWithdrawalsEnabled}
+                onWithdraw={handleWithdraw}
+                isSubmitting={isSubmittingWithdraw}
+                connectedWallet={userFriendlyAddress || user?.wallet_address}
+                onToggleWithdrawals={handleToggleWithdrawals}
+              />
+            )}
+          </>
         )}
+      </main>
 
-        {activeTab === 'tasks' && (
-          <main className="screen tasks-screen">
-            <header className="section-header">
-              <div>
-                <div className="eyebrow">Tasks</div>
-                <h1>Mission board</h1>
-              </div>
-            </header>
-
-            <div className="task-list">
-              <div className="task-card">
-                <div className="task-topline">
-                  <div>
-                    <div className="muted-label">Daily ad</div>
-                    <div className="task-title">Watch ads</div>
-                  </div>
-                  <div className="reward-pill">+{AURA_AGEN_SETTINGS.ad_reward} AGEN</div>
-                </div>
-                <div className="task-footer">
-                  <span>{adCount}/{AURA_AGEN_SETTINGS.daily_ad_limit}</span>
-                  <button className="small-btn" onClick={() => void handleWatchAd()} disabled={adLimitReached || isAdLoading}>Claim</button>
-                </div>
-              </div>
-
-              <div className="task-card">
-                <div className="task-topline">
-                  <div>
-                    <div className="muted-label">Telegram</div>
-                    <div className="task-title">Official channel</div>
-                  </div>
-                  <div className="reward-pill">+{AURA_AGEN_SETTINGS.task_reward} AGEN</div>
-                </div>
-                <div className="task-footer">
-                  <span>{taskStatus.telegram_channel.claimed ? 'Claimed' : 'Ready'}</span>
-                  <button className="small-btn" onClick={handleTelegramTask} disabled={taskStatus.telegram_channel.claimed}>Claim</button>
-                </div>
-              </div>
-            </div>
-          </main>
-        )}
-
-        {activeTab === 'miners' && (
-          <main className="screen levels-screen">
-            <header className="section-header">
-              <div>
-                <div className="eyebrow">Levels</div>
-                <h1>Mine tiers</h1>
-              </div>
-            </header>
-
-            <div className="level-summary">
-              <div>
-                <div className="muted-label">Current level</div>
-                <div className="summary-value">{currentLevel}</div>
-              </div>
-              <div className="pill network-pill">{currentLevelMeta.label}</div>
-            </div>
-
-            <div className="levels-list">
-              {LEVELS.map((level) => {
-                const isUnlocked = level.level <= currentLevel;
-                const canUpgrade = balance >= level.agen_amount;
-                return (
-                  <div key={level.level} className={`level-row ${isUnlocked ? 'active' : ''}`}>
-                    <div>
-                      <div className="eyebrow">Level {level.level}</div>
-                      <div className="task-title">{level.label}</div>
-                    </div>
-                    <button className="small-btn" onClick={() => handleLevelUpgrade(level.level)} disabled={!canUpgrade && !isUnlocked}>
-                      {isUnlocked ? 'Active' : canUpgrade ? 'Upgrade' : 'Locked'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </main>
-        )}
-
-        {activeTab === 'friends' && (
-          <main className="screen referral-screen">
-            <header className="section-header">
-              <div>
-                <div className="eyebrow">Referral</div>
-                <h1>Invite & earn</h1>
-              </div>
-            </header>
-
-            <div className="referral-card">
-              <div className="muted-label">Your referral link</div>
-              <div className="link-row">
-                <input readOnly value={referralLink} />
-                <button className="small-btn" onClick={handleCopyLink}>{copied ? 'Copied' : 'Copy'}</button>
-              </div>
-              <div className="share-row">
-                <button className="secondary-btn" onClick={handleInviteFriend}>Share</button>
-              </div>
-            </div>
-          </main>
-        )}
-
-        {activeTab === 'profile' && (
-          <main className="screen wallet-screen">
-            <header className="section-header">
-              <div>
-                <div className="eyebrow">Wallet</div>
-                <h1>Account</h1>
-              </div>
-            </header>
-
-            <div className="profile-card">
-              <div className="user-badge-row">
-                <div>
-                  <div className="muted-label">Telegram user</div>
-                  <div className="task-title">{telegramUser?.username || telegramUser?.first_name || 'User'}</div>
-                </div>
-                <div className="pill network-pill">{telegramId ? 'Online' : 'Offline'}</div>
-              </div>
-
-              <div className="wallet-data">
-                <div className="wallet-row">Telegram ID: {telegramId ?? 'N/A'}</div>
-                <div className="wallet-row">TON wallet: {walletAddress ?? 'Not connected'}</div>
-                <div className="wallet-row">Bot token: {hasBotToken ? 'Configured' : 'Missing'}</div>
-              </div>
-
-              <div className="wallet-button-wrap">
-                <TonConnectButton />
-              </div>
-            </div>
-          </main>
-        )}
-      </div>
-
-      <nav className="bottom-nav">
-        {[
-          ['Home', 'home'],
-          ['Tasks', 'tasks'],
-          ['Levels', 'miners'],
-          ['Referral', 'friends'],
-          ['Wallet', 'profile'],
-        ].map(([label, key]) => (
-          <button
-            key={key}
-            type="button"
-            className={`nav-item ${activeTab === key ? 'active' : ''}`}
-            onClick={() => setActiveTab(key as 'home' | 'tasks' | 'miners' | 'friends' | 'profile')}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      {/* Bottom 9-Tab Navigation Bar */}
+      <Navigation
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        adsRemaining={adsRemaining}
+      />
     </div>
   );
 }
-
-export default App;
